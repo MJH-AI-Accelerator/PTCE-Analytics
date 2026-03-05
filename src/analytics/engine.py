@@ -432,3 +432,147 @@ def barriers_summary(conn, activity_id: str = None) -> pd.DataFrame:
     return df.groupby(["eval_question_text", "response_text"]).agg(
         count=("response_text", "count"),
     ).reset_index().sort_values("count", ascending=False)
+
+
+# --- Unified Learner Response View ---
+
+def unified_learner_responses(conn, activity_id: str = None) -> pd.DataFrame:
+    """Build a single wide-format DataFrame with one row per learner per activity.
+
+    Each row contains: learner info, all assessment pre/post answers,
+    confidence pre/post ratings, and evaluation responses as columns.
+    """
+    # Base: learner + participation info
+    base_query = """
+        SELECT
+            p.participation_id, p.activity_id, p.participation_date,
+            p.pre_score, p.post_score, p.score_change,
+            p.pre_confidence_avg, p.post_confidence_avg, p.confidence_change,
+            l.learner_id, l.email, l.first_name, l.last_name,
+            l.employer_normalized as employer, l.practice_setting, l.role,
+            a.activity_name, a.activity_type, a.therapeutic_area, a.disease_state
+        FROM participations p
+        JOIN learners l ON p.learner_id = l.learner_id
+        JOIN activities a ON p.activity_id = a.activity_id
+    """
+    if activity_id:
+        base_query += f" WHERE p.activity_id = '{activity_id}'"
+
+    base_df = pd.read_sql_query(base_query, conn)
+    if base_df.empty:
+        return pd.DataFrame()
+
+    # Assessment question responses (pre/post)
+    assess_query = """
+        SELECT
+            qr.participation_id, qr.phase,
+            q.question_number, q.question_text, q.question_category,
+            qr.learner_answer, qr.is_correct
+        FROM question_responses qr
+        JOIN questions q ON qr.question_id = q.question_id
+        WHERE q.question_type = 'assessment'
+    """
+    if activity_id:
+        assess_query += f" AND q.activity_id = '{activity_id}'"
+
+    assess_df = pd.read_sql_query(assess_query, conn)
+
+    if not assess_df.empty:
+        for phase in ["pre", "post"]:
+            phase_data = assess_df[assess_df["phase"] == phase].copy()
+            if phase_data.empty:
+                continue
+            phase_label = phase.capitalize()
+            for _, q_group in phase_data.groupby("question_number"):
+                q_num = int(q_group["question_number"].iloc[0])
+                col_answer = f"Q{q_num}_{phase_label}_Answer"
+                col_correct = f"Q{q_num}_{phase_label}_Correct"
+
+                pivot = q_group[["participation_id", "learner_answer", "is_correct"]].copy()
+                pivot = pivot.rename(columns={"learner_answer": col_answer, "is_correct": col_correct})
+                base_df = base_df.merge(pivot[["participation_id", col_answer, col_correct]],
+                                        on="participation_id", how="left")
+
+    # Confidence question responses (pre/post)
+    conf_query = """
+        SELECT
+            qr.participation_id, qr.phase,
+            q.question_number, q.question_text,
+            qr.learner_answer, qr.numeric_value
+        FROM question_responses qr
+        JOIN questions q ON qr.question_id = q.question_id
+        WHERE q.question_type = 'confidence'
+    """
+    if activity_id:
+        conf_query += f" AND q.activity_id = '{activity_id}'"
+
+    conf_df = pd.read_sql_query(conf_query, conn)
+
+    if not conf_df.empty:
+        for phase in ["pre", "post"]:
+            phase_data = conf_df[conf_df["phase"] == phase].copy()
+            if phase_data.empty:
+                continue
+            phase_label = phase.capitalize()
+            for _, q_group in phase_data.groupby("question_number"):
+                q_num = int(q_group["question_number"].iloc[0])
+                col_text = f"Conf{q_num}_{phase_label}_Text"
+                col_val = f"Conf{q_num}_{phase_label}_Value"
+
+                pivot = q_group[["participation_id", "learner_answer", "numeric_value"]].copy()
+                pivot = pivot.rename(columns={"learner_answer": col_text, "numeric_value": col_val})
+                base_df = base_df.merge(pivot[["participation_id", col_text, col_val]],
+                                        on="participation_id", how="left")
+
+    # Evaluation responses
+    eval_query = """
+        SELECT er.participation_id, er.eval_question_text, er.eval_category,
+               er.response_text, er.response_numeric
+        FROM evaluation_responses er
+    """
+    if activity_id:
+        eval_query += f"""
+            JOIN participations p ON er.participation_id = p.participation_id
+            WHERE p.activity_id = '{activity_id}'
+        """
+
+    eval_df = pd.read_sql_query(eval_query, conn)
+
+    if not eval_df.empty:
+        eval_questions = eval_df["eval_question_text"].unique()
+        for eq in eval_questions:
+            eq_data = eval_df[eval_df["eval_question_text"] == eq].copy()
+            col_name = f"Eval_{_short_label(eq)}"
+            eq_data["response"] = eq_data["response_text"].fillna(
+                eq_data["response_numeric"].astype(str)
+            )
+            pivot = eq_data[["participation_id", "response"]].copy()
+            pivot = pivot.rename(columns={"response": col_name})
+            # Handle multiple responses per question (multi-select) by joining
+            pivot = pivot.groupby("participation_id")[col_name].agg(
+                lambda x: "; ".join(x.dropna())
+            ).reset_index()
+            base_df = base_df.merge(pivot, on="participation_id", how="left")
+
+    return base_df
+
+
+def get_question_legend(conn, activity_id: str = None) -> pd.DataFrame:
+    """Get a reference table mapping question numbers to text and categories."""
+    query = """
+        SELECT q.question_number, q.question_text, q.question_type,
+               q.question_category, q.correct_answer, a.activity_id, a.activity_name
+        FROM questions q
+        JOIN activities a ON q.activity_id = a.activity_id
+    """
+    if activity_id:
+        query += f" WHERE q.activity_id = '{activity_id}'"
+    query += " ORDER BY q.activity_id, q.question_type, q.question_number"
+    return pd.read_sql_query(query, conn)
+
+
+def _short_label(question_text: str, max_len: int = 30) -> str:
+    """Create a short column label from a question text."""
+    label = question_text[:max_len].strip()
+    label = label.replace(" ", "_").replace("?", "").replace("%", "pct")
+    return label

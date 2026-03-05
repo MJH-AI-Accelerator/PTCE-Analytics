@@ -25,6 +25,7 @@ from src.analytics.engine import (
     question_level_analysis, category_level_analysis,
     confidence_question_analysis, evaluation_analysis,
     intended_changes_summary, barriers_summary,
+    unified_learner_responses, get_question_legend,
 )
 from src.analytics.catalog import (
     get_activity_catalog, get_activity_detail, search_questions,
@@ -51,7 +52,7 @@ st.sidebar.title("PTCE Analytics")
 page = st.sidebar.radio(
     "Navigation",
     ["Dashboard", "Data Sources", "Data Import", "Program Catalog",
-     "Question Analysis", "Evaluation Analysis",
+     "Question Analysis", "Evaluation Analysis", "Learner Responses",
      "Employer Analysis", "Temporal Analysis", "Participation Depth",
      "Learner Explorer", "Employer Management", "Statistical Tests", "Export"],
 )
@@ -611,6 +612,124 @@ def page_evaluation_analysis():
     conn.close()
 
 
+def page_learner_responses():
+    st.title("Learner Responses")
+    st.markdown("""
+    Unified view of every learner's responses — assessment answers (pre & post),
+    confidence ratings, and evaluation data — all in one row per learner.
+    """)
+
+    conn = get_connection()
+
+    # Activity selector
+    catalog = get_activity_catalog(conn)
+    if catalog.empty:
+        st.info("No activities loaded yet.")
+        conn.close()
+        return
+
+    activity_options = ["All Activities"] + catalog["activity_id"].tolist()
+    activity_labels = ["All Activities"] + [
+        f"{row['activity_name']} ({row['activity_id']})"
+        for _, row in catalog.iterrows()
+    ]
+    selected_idx = st.selectbox("Select Activity", range(len(activity_options)),
+                                format_func=lambda i: activity_labels[i],
+                                key="lr_activity")
+    selected_activity = None if selected_idx == 0 else activity_options[selected_idx]
+
+    with st.spinner("Building unified response table..."):
+        df = unified_learner_responses(conn, selected_activity)
+
+    if df.empty:
+        st.info("No learner response data available for this selection.")
+        conn.close()
+        return
+
+    # Summary metrics
+    col1, col2, col3 = st.columns(3)
+    col1.metric("Learners", df["learner_id"].nunique())
+    col2.metric("Activities", df["activity_id"].nunique())
+    total_cols = len([c for c in df.columns if c.startswith(("Q", "Conf", "Eval_"))])
+    col3.metric("Response Columns", total_cols)
+
+    # Search / filter
+    st.subheader("Filter")
+    col_search, col_employer = st.columns(2)
+    with col_search:
+        search = st.text_input("Search by email or name", key="lr_search")
+    with col_employer:
+        employers = sorted(df["employer"].dropna().unique())
+        emp_filter = st.multiselect("Filter by employer", employers, key="lr_emp")
+
+    filtered = df.copy()
+    if search:
+        mask = (
+            filtered["email"].str.contains(search, case=False, na=False) |
+            filtered["first_name"].str.contains(search, case=False, na=False) |
+            filtered["last_name"].str.contains(search, case=False, na=False)
+        )
+        filtered = filtered[mask]
+    if emp_filter:
+        filtered = filtered[filtered["employer"].isin(emp_filter)]
+
+    st.write(f"Showing **{len(filtered)}** records")
+
+    # Column visibility controls
+    all_col_groups = {
+        "Learner Info": ["email", "first_name", "last_name", "employer", "practice_setting", "role"],
+        "Activity Info": ["activity_name", "activity_id", "activity_type", "therapeutic_area",
+                          "disease_state", "participation_date"],
+        "Aggregate Scores": ["pre_score", "post_score", "score_change",
+                             "pre_confidence_avg", "post_confidence_avg", "confidence_change"],
+        "Assessment Pre": [c for c in filtered.columns if c.startswith("Q") and "_Pre_" in c],
+        "Assessment Post": [c for c in filtered.columns if c.startswith("Q") and "_Post_" in c],
+        "Confidence": [c for c in filtered.columns if c.startswith("Conf")],
+        "Evaluation": [c for c in filtered.columns if c.startswith("Eval_")],
+    }
+
+    with st.expander("Choose visible columns"):
+        visible_groups = st.multiselect(
+            "Column groups",
+            list(all_col_groups.keys()),
+            default=["Learner Info", "Aggregate Scores", "Assessment Pre", "Assessment Post"],
+            key="lr_col_groups",
+        )
+
+    visible_cols = []
+    for group in visible_groups:
+        visible_cols.extend([c for c in all_col_groups[group] if c in filtered.columns])
+
+    if visible_cols:
+        st.dataframe(filtered[visible_cols], use_container_width=True, height=500)
+    else:
+        st.dataframe(filtered, use_container_width=True, height=500)
+
+    # Question legend
+    legend = get_question_legend(conn, selected_activity)
+    if not legend.empty:
+        with st.expander("Question Legend — what each Q#/Conf# refers to"):
+            st.dataframe(legend, use_container_width=True)
+
+    # Export
+    st.markdown("---")
+    if st.button("Export to Excel", type="primary", key="lr_export"):
+        from src.export.reports import export_to_excel
+        sheets = {"Learner Responses": filtered}
+        if not legend.empty:
+            sheets["Question Legend"] = legend
+        excel_bytes = export_to_excel(sheets)
+        st.download_button(
+            label="Download Excel",
+            data=excel_bytes,
+            file_name=f"learner_responses_{selected_activity or 'all'}.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            key="lr_download",
+        )
+
+    conn.close()
+
+
 def page_employer_analysis():
     st.title("Employer Analysis")
 
@@ -1104,6 +1223,7 @@ PAGES = {
     "Program Catalog": page_program_catalog,
     "Question Analysis": page_question_analysis,
     "Evaluation Analysis": page_evaluation_analysis,
+    "Learner Responses": page_learner_responses,
     "Employer Analysis": page_employer_analysis,
     "Temporal Analysis": page_temporal_analysis,
     "Participation Depth": page_participation_depth,
