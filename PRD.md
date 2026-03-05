@@ -80,6 +80,11 @@ Each activity has its own metadata record, forming a **program catalog** (rolode
 - **FR-ACT-3**: Allow filtering and browsing activities by therapeutic area, disease state, type, date, sponsor, or audience
 - **FR-ACT-4**: Activity detail view showing metadata, linked learner count, and aggregate performance summary
 - **FR-ACT-5**: Support importing activity metadata from a dedicated config file (YAML/JSON) or from columns in the data file
+- **FR-ACT-6**: **Cross-program question search** — identify and surface assessment questions that are identical (or near-identical) across different activities. This enables:
+  - Searching the catalog by question text to find all programs that use a given question
+  - Comparing learner performance on the same question across different programs, time periods, and audiences
+  - Detecting question reuse patterns (e.g., a standard knowledge-check question used across 5 oncology webinars)
+- **FR-ACT-7**: Normalize question text for matching (trim whitespace, normalize punctuation/casing) and use fuzzy matching to also surface near-identical variants (e.g., minor rewording)
 
 ### 3.4 Assessment Data Handling
 
