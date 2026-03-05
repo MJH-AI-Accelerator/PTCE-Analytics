@@ -46,12 +46,40 @@ There is no existing tool that links learner records across activities for longi
 | Activity ID/Name | Which educational activity | String |
 | Activity Date | When the activity occurred | Date |
 | Activity Type | Webinar, course, conference, etc. | Categorical |
+| Therapeutic Area | Primary therapeutic area (e.g., oncology, cardiology, diabetes) | Categorical |
+| Disease State | Specific disease state within therapeutic area | Categorical |
 | Pre-Activity Assessment | Knowledge assessment before activity (see 3.4) | Mixed |
 | Post-Activity Assessment | Knowledge assessment after activity (see 3.4) | Mixed |
 | Pre-Activity Confidence | Self-reported confidence before (see 3.5) | Likert text |
 | Post-Activity Confidence | Self-reported confidence after (see 3.5) | Likert text |
 | Pulse Questions | Short follow-up survey responses | Mixed |
 | Comments | Free-text learner feedback | Text |
+
+### 3.3 Activity Metadata
+
+Each activity has its own metadata record, forming a **program catalog** (rolodex of all PTCE programs). This enables users to browse, search, and filter activities before drilling into learner data.
+
+| Field | Description | Type |
+|---|---|---|
+| Activity ID | Unique identifier for the activity | String |
+| Activity Name | Full title of the activity | String |
+| Activity Type | Webinar, course, conference, etc. | Categorical |
+| Activity Date(s) | Date or date range of the activity | Date |
+| Therapeutic Area | Primary therapeutic area (e.g., oncology, cardiology, diabetes) | Categorical |
+| Disease State | Specific disease state (e.g., NSCLC, Type 2 Diabetes, Heart Failure) | Categorical |
+| Sponsor | Funding/sponsoring organization | String |
+| Accreditation Type | ACPE, CME, CNE, etc. | Categorical |
+| Credit Hours | Number of CE credits awarded | Numeric |
+| Learning Objectives | List of stated learning objectives for the activity | Text (list) |
+| Questions → Objectives Mapping | Which assessment questions map to which learning objectives | Structured |
+| Target Audience | Intended audience (pharmacists, technicians, nurses, etc.) | Categorical (list) |
+| Description | Brief summary of the activity content | Text |
+
+- **FR-ACT-1**: Maintain a searchable activity catalog with all metadata fields above
+- **FR-ACT-2**: Map assessment questions to learning objectives per activity, enabling objective-level performance analysis
+- **FR-ACT-3**: Allow filtering and browsing activities by therapeutic area, disease state, type, date, sponsor, or audience
+- **FR-ACT-4**: Activity detail view showing metadata, linked learner count, and aggregate performance summary
+- **FR-ACT-5**: Support importing activity metadata from a dedicated config file (YAML/JSON) or from columns in the data file
 
 ### 3.4 Assessment Data Handling
 
@@ -121,7 +149,7 @@ The system must clean and standardize employer names:
 
 ### 4.1 Data Ingestion
 - **FR-1**: Import learner data from Excel (.xlsx) and CSV files
-- **FR-2**: Support configurable column mapping (different activities may have different column layouts)
+- **FR-2**: Support configurable column mapping via YAML/JSON config files per activity type (different activities may have different column layouts)
 - **FR-3**: Validate and normalize incoming data (standardize employer names, practice settings, etc.)
 - **FR-4**: API connector interface for future programmatic data sources
 - **FR-5**: Deduplication and learner identity resolution across data files
@@ -162,6 +190,8 @@ The system must clean and standardize employer names:
   - Year/date range of participation
   - Number of activities completed
   - Activity type or specific activity
+  - Therapeutic area (e.g., oncology, cardiology, diabetes)
+  - Disease state (e.g., NSCLC, heart failure)
 - **FR-22**: Role data normalization — since role/responsibility data varies by activity, the system must:
   - Detect the format (single select, multi-select, percentage breakdown)
   - Normalize into a queryable structure (field + value + optional percentage)
@@ -186,7 +216,7 @@ The system must clean and standardize employer names:
 
 ### 4.5 Output & Reporting
 - **FR-31**: Interactive dashboard (web-based) with filters for employer, year, activity, practice setting
-- **FR-32**: Export reports to PDF and Excel
+- **FR-32**: Export reports to PDF and Excel — supports both raw learner-level data exports and aggregate summary reports
 - **FR-33**: CLI mode for analysts to run specific queries and generate output directly
 - **FR-34**: Visualization: bar charts, line charts (trends), box plots (distributions), heatmaps
 
@@ -198,7 +228,7 @@ The system must clean and standardize employer names:
 - **NFR-2**: Data ingestion should validate and report errors clearly (bad rows, missing fields)
 - **NFR-3**: Modular architecture: ingestion, identity resolution, analytics, and reporting as separate layers
 - **NFR-4**: Extensible: easy to add new metrics, data sources, or output formats
-- **NFR-5**: Data privacy: no PII exposed in shared reports without explicit configuration
+- **NFR-5**: Data privacy: PII (emails, names) is visible to all users in reports and exports — no anonymization required for internal use
 
 ---
 
@@ -226,14 +256,16 @@ The system must clean and standardize employer names:
 ```
 [Data Sources]          [Ingestion Layer]        [Core Database]
 Excel/CSV files  --->   Column Mapper     --->   SQLite DB
-API endpoints    --->   Validator/Normalizer      (unified learner
-                        Identity Resolver          profiles)
+YAML/JSON configs --->  Validator/Normalizer      ├── Learner Profiles
+API endpoints    --->   Identity Resolver         ├── Activity Catalog
+                                                  ├── Participation Records
+                                                  └── Assessment Data
 
 [Analytics Engine]      [Output Layer]
 Employer Analysis  ---> Interactive Dashboard (Streamlit/Dash)
-Temporal Analysis  ---> PDF/Excel Reports
+Temporal Analysis  ---> PDF/Excel Reports (raw + aggregate)
 Participation      ---> CLI Output
-Statistical Tests
+Statistical Tests       Activity Catalog Browser
 Qualitative Analysis
 ```
 
@@ -242,7 +274,8 @@ Qualitative Analysis
 ## 8. Phased Delivery
 
 ### Phase 1: Foundation
-- Data ingestion from Excel/CSV with configurable column mapping
+- Data ingestion from Excel/CSV with YAML/JSON column mapping configs
+- Activity catalog: metadata storage, browsing, and question-to-objective mapping
 - Learner identity resolution (email-based)
 - SQLite storage with unified learner profiles
 - Basic CLI for querying
@@ -282,3 +315,4 @@ Qualitative Analysis
 2. **Employer normalization**: How many distinct employer names exist, and how messy is the naming? (May need a mapping/alias table)
 3. **Dashboard hosting**: Will the dashboard run locally only, or does it need to be deployed to a server for team access?
 4. **Data refresh cadence**: How often will new activity data be ingested? (Ad-hoc vs. scheduled)
+5. **Multi-activity scoring across topics**: When analyzing participation depth (single vs. multi-activity), how should we handle learners who completed activities across different therapeutic areas vs. multiple activities within the same area? (To be determined during build-out)
