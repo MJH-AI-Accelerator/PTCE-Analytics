@@ -29,6 +29,7 @@ from src.analytics.catalog import (
     save_questions,
 )
 from src.export.reports import export_to_excel
+from src.connectors.refresh import test_all_connections, refresh_from_connector, refresh_all, get_connector
 
 # --- Page Config ---
 st.set_page_config(
@@ -46,7 +47,7 @@ init_db()
 st.sidebar.title("PTCE Analytics")
 page = st.sidebar.radio(
     "Navigation",
-    ["Dashboard", "Data Import", "Program Catalog", "Employer Analysis",
+    ["Dashboard", "Data Sources", "Data Import", "Program Catalog", "Employer Analysis",
      "Temporal Analysis", "Participation Depth", "Learner Explorer",
      "Employer Management", "Statistical Tests", "Export"],
 )
@@ -783,9 +784,126 @@ def page_export():
     conn.close()
 
 
+def page_data_sources():
+    st.title("Data Sources & Refresh")
+
+    st.markdown("""
+    Connect to external platforms to pull learner data automatically.
+    Configure credentials in the `.env` file, then test and refresh from here.
+    """)
+
+    # Connection status
+    st.subheader("Connection Status")
+    if st.button("Test All Connections"):
+        with st.spinner("Testing connections..."):
+            results = test_all_connections()
+        for name, result in results.items():
+            if result["success"]:
+                st.success(f"**{name.title()}**: {result['message']}")
+            else:
+                st.error(f"**{name.title()}**: {result['message']}")
+
+    st.markdown("---")
+
+    # Individual connector controls
+    st.subheader("Refresh Data")
+
+    col1, col2 = st.columns([2, 1])
+    with col1:
+        connector_choice = st.selectbox(
+            "Select platform",
+            ["All Platforms", "Snowflake", "GlobalMeet", "Array", "Pigeonhole"],
+        )
+    with col2:
+        refresh_type = st.radio("Refresh type", ["Incremental (last 24h)", "Full refresh"])
+
+    full_refresh = refresh_type == "Full refresh"
+
+    if st.button("Refresh Now", type="primary"):
+        with st.spinner(f"Pulling data from {connector_choice}..."):
+            if connector_choice == "All Platforms":
+                results = refresh_all(full_refresh=full_refresh)
+                for name, stats in results.items():
+                    errors = stats.get("errors", [])
+                    if errors:
+                        st.warning(f"**{name.title()}**: {stats.get('learners_processed', 0)} learners, "
+                                   f"{len(errors)} errors")
+                        with st.expander(f"{name} errors"):
+                            for e in errors[:20]:
+                                st.text(e)
+                    else:
+                        st.success(f"**{name.title()}**: {stats.get('activities_fetched', 0)} activities, "
+                                   f"{stats.get('learners_processed', 0)} learners")
+            else:
+                name = connector_choice.lower().replace(" ", "")
+                stats = refresh_from_connector(name, full_refresh=full_refresh)
+                errors = stats.get("errors", [])
+                if errors and any("Connection failed" in e for e in errors):
+                    st.error(f"Could not connect to {connector_choice}. Check your `.env` credentials.")
+                    for e in errors:
+                        st.text(e)
+                elif errors:
+                    st.warning(f"{stats.get('learners_processed', 0)} learners processed, {len(errors)} errors")
+                    with st.expander("Errors"):
+                        for e in errors[:20]:
+                            st.text(e)
+                else:
+                    st.success(f"{stats.get('activities_fetched', 0)} activities, "
+                               f"{stats.get('learners_processed', 0)} learners pulled successfully!")
+
+    # Scheduler info
+    st.markdown("---")
+    st.subheader("Automatic Daily Refresh")
+    st.markdown("""
+    To set up automatic daily data refresh:
+
+    1. Open **Windows Task Scheduler**
+    2. Click **Create Basic Task**
+    3. Name: `PTCE Analytics Daily Refresh`
+    4. Trigger: **Daily** at your preferred time (e.g., 6:00 AM)
+    5. Action: **Start a Program**
+       - **Program**: `C:\\Users\\fagustin\\AppData\\Local\\Programs\\Python\\Python312\\python.exe`
+       - **Arguments**: `refresh_scheduler.py`
+       - **Start in**: `C:\\Users\\fagustin\\Documents\\GitHub\\ptce-analytics`
+    6. Click **Finish**
+
+    Refresh logs are saved in `data/logs/`.
+    """)
+
+    # Show recent logs
+    log_dir = Path(__file__).parent / "data" / "logs"
+    if log_dir.exists():
+        log_files = sorted(log_dir.glob("refresh_*.log"), reverse=True)[:5]
+        if log_files:
+            st.subheader("Recent Refresh Logs")
+            for lf in log_files:
+                with st.expander(lf.name):
+                    st.text(lf.read_text())
+
+    # Credential status helper
+    st.markdown("---")
+    st.subheader("Credential Configuration")
+    st.markdown("""
+    Edit the `.env` file in the project root to configure credentials:
+
+    ```
+    C:\\Users\\fagustin\\Documents\\GitHub\\ptce-analytics\\.env
+    ```
+
+    See `.env.example` for all available settings.
+    """)
+
+    env_path = Path(__file__).parent / ".env"
+    if env_path.exists():
+        st.success(".env file found")
+    else:
+        st.warning(".env file not found. Copy `.env.example` to `.env` and fill in your credentials.")
+
+
 # --- Route Pages ---
 PAGES = {
     "Dashboard": page_dashboard,
+    "Data Sources": page_data_sources,
     "Data Import": page_data_import,
     "Program Catalog": page_program_catalog,
     "Employer Analysis": page_employer_analysis,

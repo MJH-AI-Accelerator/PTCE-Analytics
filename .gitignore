@@ -9,3 +9,4 @@ data/processed/
 *.egg-info/
 dist/
 build/
+data/logs/
