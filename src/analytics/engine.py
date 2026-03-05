@@ -17,8 +17,8 @@ def get_participation_data(conn=None, filters: dict = None) -> pd.DataFrame:
             l.employer_normalized as employer, l.practice_setting, l.role,
             p.participation_id, p.activity_id, p.participation_date,
             p.pre_score, p.post_score, p.score_change,
-            p.pre_confidence_numeric as pre_confidence,
-            p.post_confidence_numeric as post_confidence,
+            p.pre_confidence_avg as pre_confidence,
+            p.post_confidence_avg as post_confidence,
             p.confidence_change, p.comments,
             a.activity_name, a.activity_type, a.therapeutic_area,
             a.disease_state, a.sponsor,
@@ -262,3 +262,173 @@ def group_comparison_anova(df: pd.DataFrame, group_col: str, metric_col: str) ->
         "p_value": round(p_val, 4),
         "significant": p_val < 0.05,
     }
+
+
+# --- Per-Question Analysis ---
+
+def question_level_analysis(conn, activity_id: str = None, filters: dict = None) -> pd.DataFrame:
+    """Get per-question pre vs post performance.
+
+    Shows for each question: pre % correct, post % correct, improvement, category.
+    """
+    query = """
+        SELECT
+            q.question_id, q.question_number, q.question_text, q.question_category,
+            q.question_type, q.activity_id, a.activity_name,
+            qr.phase, qr.is_correct, qr.numeric_value,
+            p.participation_id, p.learner_id
+        FROM question_responses qr
+        JOIN questions q ON qr.question_id = q.question_id
+        JOIN participations p ON qr.participation_id = p.participation_id
+        JOIN activities a ON q.activity_id = a.activity_id
+    """
+    if activity_id:
+        query += f" WHERE q.activity_id = '{activity_id}'"
+
+    df = pd.read_sql_query(query, conn)
+    if df.empty:
+        return pd.DataFrame()
+
+    # For assessment questions: compute % correct pre and post
+    assess = df[df["question_type"] == "assessment"]
+    if not assess.empty:
+        summary = assess.groupby(["question_id", "question_number", "question_text",
+                                   "question_category", "activity_name", "phase"]).agg(
+            total_responses=("is_correct", "count"),
+            correct_count=("is_correct", "sum"),
+        ).reset_index()
+        summary["pct_correct"] = (summary["correct_count"] / summary["total_responses"] * 100).round(1)
+
+        # Pivot pre/post into columns
+        pivot = summary.pivot_table(
+            index=["question_id", "question_number", "question_text", "question_category", "activity_name"],
+            columns="phase",
+            values="pct_correct",
+        ).reset_index()
+
+        if "pre" in pivot.columns and "post" in pivot.columns:
+            pivot["improvement"] = (pivot["post"] - pivot["pre"]).round(1)
+        pivot.columns.name = None
+        return pivot
+
+    return pd.DataFrame()
+
+
+def category_level_analysis(conn, activity_id: str = None) -> pd.DataFrame:
+    """Aggregate pre vs post performance by question category.
+
+    Shows how learners performed across Pathophysiology/MOA, Clinical Updates, etc.
+    """
+    query = """
+        SELECT
+            q.question_category, qr.phase, qr.is_correct,
+            q.activity_id, a.activity_name
+        FROM question_responses qr
+        JOIN questions q ON qr.question_id = q.question_id
+        JOIN participations p ON qr.participation_id = p.participation_id
+        JOIN activities a ON q.activity_id = a.activity_id
+        WHERE q.question_type = 'assessment' AND q.question_category IS NOT NULL
+    """
+    if activity_id:
+        query += f" AND q.activity_id = '{activity_id}'"
+
+    df = pd.read_sql_query(query, conn)
+    if df.empty:
+        return pd.DataFrame()
+
+    summary = df.groupby(["question_category", "phase"]).agg(
+        total=("is_correct", "count"),
+        correct=("is_correct", "sum"),
+    ).reset_index()
+    summary["pct_correct"] = (summary["correct"] / summary["total"] * 100).round(1)
+
+    pivot = summary.pivot_table(
+        index="question_category", columns="phase", values="pct_correct"
+    ).reset_index()
+
+    if "pre" in pivot.columns and "post" in pivot.columns:
+        pivot["improvement"] = (pivot["post"] - pivot["pre"]).round(1)
+    pivot.columns.name = None
+    return pivot
+
+
+def confidence_question_analysis(conn, activity_id: str = None) -> pd.DataFrame:
+    """Analyze confidence questions pre vs post (Likert scale 1-5)."""
+    query = """
+        SELECT
+            q.question_id, q.question_number, q.question_text,
+            qr.phase, qr.numeric_value,
+            q.activity_id, a.activity_name
+        FROM question_responses qr
+        JOIN questions q ON qr.question_id = q.question_id
+        JOIN participations p ON qr.participation_id = p.participation_id
+        JOIN activities a ON q.activity_id = a.activity_id
+        WHERE q.question_type = 'confidence' AND qr.numeric_value IS NOT NULL
+    """
+    if activity_id:
+        query += f" AND q.activity_id = '{activity_id}'"
+
+    df = pd.read_sql_query(query, conn)
+    if df.empty:
+        return pd.DataFrame()
+
+    summary = df.groupby(["question_id", "question_text", "activity_name", "phase"]).agg(
+        avg_confidence=("numeric_value", "mean"),
+        n_responses=("numeric_value", "count"),
+    ).reset_index()
+
+    pivot = summary.pivot_table(
+        index=["question_id", "question_text", "activity_name"],
+        columns="phase",
+        values="avg_confidence",
+    ).reset_index()
+
+    if "pre" in pivot.columns and "post" in pivot.columns:
+        pivot["change"] = (pivot["post"] - pivot["pre"]).round(2)
+    pivot.columns.name = None
+    return pivot
+
+
+# --- Evaluation Analysis ---
+
+def evaluation_analysis(conn, activity_id: str = None, category: str = None) -> pd.DataFrame:
+    """Analyze evaluation responses (practice profile, intended changes, barriers)."""
+    query = """
+        SELECT
+            er.eval_question_text, er.eval_category, er.response_text, er.response_numeric,
+            p.activity_id, a.activity_name,
+            l.employer_normalized as employer, l.practice_setting
+        FROM evaluation_responses er
+        JOIN participations p ON er.participation_id = p.participation_id
+        JOIN activities a ON p.activity_id = a.activity_id
+        JOIN learners l ON p.learner_id = l.learner_id
+        WHERE 1=1
+    """
+    if activity_id:
+        query += f" AND p.activity_id = '{activity_id}'"
+    if category:
+        query += f" AND er.eval_category = '{category}'"
+
+    return pd.read_sql_query(query, conn)
+
+
+def intended_changes_summary(conn, activity_id: str = None) -> pd.DataFrame:
+    """Summarize what changes learners intend to implement."""
+    df = evaluation_analysis(conn, activity_id, category="intended_change")
+    if df.empty:
+        return pd.DataFrame()
+
+    return df.groupby(["eval_question_text", "response_text"]).agg(
+        count=("response_text", "count"),
+    ).reset_index().sort_values("count", ascending=False)
+
+
+def barriers_summary(conn, activity_id: str = None) -> pd.DataFrame:
+    """Summarize anticipated barriers."""
+    df = evaluation_analysis(conn, activity_id, category="barrier")
+    if df.empty:
+        return pd.DataFrame()
+
+    return df.groupby(["eval_question_text", "response_text"]).agg(
+        count=("response_text", "count"),
+    ).reset_index().sort_values("count", ascending=False)
