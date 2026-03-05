@@ -22,6 +22,9 @@ from src.analytics.engine import (
     yearly_comparison, monthly_trend, participation_depth,
     practice_setting_breakdown, role_breakdown,
     descriptive_stats, paired_ttest, group_comparison_anova,
+    question_level_analysis, category_level_analysis,
+    confidence_question_analysis, evaluation_analysis,
+    intended_changes_summary, barriers_summary,
 )
 from src.analytics.catalog import (
     get_activity_catalog, get_activity_detail, search_questions,
@@ -47,9 +50,10 @@ init_db()
 st.sidebar.title("PTCE Analytics")
 page = st.sidebar.radio(
     "Navigation",
-    ["Dashboard", "Data Sources", "Data Import", "Program Catalog", "Employer Analysis",
-     "Temporal Analysis", "Participation Depth", "Learner Explorer",
-     "Employer Management", "Statistical Tests", "Export"],
+    ["Dashboard", "Data Sources", "Data Import", "Program Catalog",
+     "Question Analysis", "Evaluation Analysis",
+     "Employer Analysis", "Temporal Analysis", "Participation Depth",
+     "Learner Explorer", "Employer Management", "Statistical Tests", "Export"],
 )
 
 
@@ -411,6 +415,198 @@ def page_program_catalog():
                         st.write("**Used in:**")
                         for act in group["activities"]:
                             st.write(f"- {act['activity_name']} ({act['activity_id']})")
+
+    conn.close()
+
+
+def page_question_analysis():
+    st.title("Question-Level Analysis")
+
+    conn = get_connection()
+
+    # Activity selector
+    catalog = get_activity_catalog(conn)
+    if catalog.empty:
+        st.info("No activities loaded yet.")
+        conn.close()
+        return
+
+    activity_options = ["All Activities"] + catalog["activity_id"].tolist()
+    activity_labels = ["All Activities"] + [
+        f"{row['activity_name']} ({row['activity_id']})"
+        for _, row in catalog.iterrows()
+    ]
+    selected_idx = st.selectbox("Select Activity", range(len(activity_options)),
+                                format_func=lambda i: activity_labels[i])
+    selected_activity = None if selected_idx == 0 else activity_options[selected_idx]
+
+    tab_questions, tab_categories, tab_confidence = st.tabs([
+        "Per-Question Performance", "By Category", "Confidence Questions"
+    ])
+
+    with tab_questions:
+        st.subheader("Assessment Questions: Pre vs Post")
+        q_df = question_level_analysis(conn, selected_activity)
+        if q_df.empty:
+            st.info("No question-level data available. Import data with individual question responses.")
+        else:
+            st.dataframe(q_df, use_container_width=True)
+
+            # Chart: pre vs post by question
+            if "pre" in q_df.columns and "post" in q_df.columns:
+                q_df["label"] = "Q" + q_df["question_number"].astype(str)
+                fig = px.bar(q_df, x="label", y=["pre", "post"],
+                             barmode="group",
+                             title="% Correct: Pre vs Post by Question",
+                             labels={"value": "% Correct", "label": "Question"})
+                st.plotly_chart(fig, use_container_width=True)
+
+                # Improvement chart
+                fig2 = px.bar(q_df, x="label", y="improvement",
+                              color="improvement",
+                              color_continuous_scale="RdYlGn",
+                              title="Improvement by Question (Post - Pre)")
+                st.plotly_chart(fig2, use_container_width=True)
+
+                # Show question text on hover
+                with st.expander("Question Details"):
+                    for _, row in q_df.iterrows():
+                        cat = f" [{row['question_category']}]" if pd.notna(row.get('question_category')) else ""
+                        pre_val = row.get('pre', 'N/A')
+                        post_val = row.get('post', 'N/A')
+                        imp = row.get('improvement', 'N/A')
+                        st.write(f"**Q{row['question_number']}**{cat}: {row['question_text']}")
+                        st.write(f"  Pre: {pre_val}% | Post: {post_val}% | Change: {imp}%")
+                        st.markdown("---")
+
+    with tab_categories:
+        st.subheader("Performance by Question Category")
+        cat_df = category_level_analysis(conn, selected_activity)
+        if cat_df.empty:
+            st.info("No category data available. Assign categories to questions when importing.")
+        else:
+            st.dataframe(cat_df, use_container_width=True)
+
+            if "pre" in cat_df.columns and "post" in cat_df.columns:
+                fig = px.bar(cat_df, x="question_category", y=["pre", "post"],
+                             barmode="group",
+                             title="% Correct by Category: Pre vs Post")
+                fig.update_layout(xaxis_tickangle=-30)
+                st.plotly_chart(fig, use_container_width=True)
+
+                fig2 = px.bar(cat_df, x="question_category", y="improvement",
+                              color="improvement",
+                              color_continuous_scale="RdYlGn",
+                              title="Knowledge Improvement by Category")
+                st.plotly_chart(fig2, use_container_width=True)
+
+    with tab_confidence:
+        st.subheader("Confidence Questions: Pre vs Post")
+        conf_df = confidence_question_analysis(conn, selected_activity)
+        if conf_df.empty:
+            st.info("No confidence question data available.")
+        else:
+            st.dataframe(conf_df, use_container_width=True)
+
+            if "pre" in conf_df.columns and "post" in conf_df.columns:
+                fig = px.bar(conf_df, x="question_text", y=["pre", "post"],
+                             barmode="group",
+                             title="Average Confidence (1-5): Pre vs Post",
+                             labels={"value": "Avg Confidence", "question_text": ""})
+                fig.update_layout(xaxis_tickangle=-30)
+                st.plotly_chart(fig, use_container_width=True)
+
+    conn.close()
+
+
+def page_evaluation_analysis():
+    st.title("Evaluation Analysis")
+    st.markdown("Post-activity evaluation data: practice profiles, intended changes, and anticipated barriers.")
+
+    conn = get_connection()
+
+    # Activity selector
+    catalog = get_activity_catalog(conn)
+    if catalog.empty:
+        st.info("No activities loaded yet.")
+        conn.close()
+        return
+
+    activity_options = ["All Activities"] + catalog["activity_id"].tolist()
+    activity_labels = ["All Activities"] + [
+        f"{row['activity_name']} ({row['activity_id']})"
+        for _, row in catalog.iterrows()
+    ]
+    selected_idx = st.selectbox("Select Activity", range(len(activity_options)),
+                                format_func=lambda i: activity_labels[i],
+                                key="eval_activity")
+    selected_activity = None if selected_idx == 0 else activity_options[selected_idx]
+
+    tab_profile, tab_changes, tab_barriers, tab_all = st.tabs([
+        "Practice Profile", "Intended Changes", "Barriers", "All Responses"
+    ])
+
+    with tab_profile:
+        st.subheader("Learner Practice Profile")
+        profile_df = evaluation_analysis(conn, selected_activity, category="practice_profile")
+        if profile_df.empty:
+            st.info("No practice profile data available.")
+        else:
+            # Group by question and show response distributions
+            for question in profile_df["eval_question_text"].unique():
+                st.markdown(f"**{question}**")
+                q_data = profile_df[profile_df["eval_question_text"] == question]
+
+                if q_data["response_numeric"].notna().any():
+                    # Numeric responses (e.g., % practice role)
+                    fig = px.histogram(q_data, x="response_numeric", nbins=10,
+                                       title=question)
+                    st.plotly_chart(fig, use_container_width=True)
+                else:
+                    # Categorical responses
+                    counts = q_data["response_text"].value_counts().reset_index()
+                    counts.columns = ["Response", "Count"]
+                    fig = px.bar(counts, x="Response", y="Count", title=question)
+                    fig.update_layout(xaxis_tickangle=-30)
+                    st.plotly_chart(fig, use_container_width=True)
+
+    with tab_changes:
+        st.subheader("Intended Changes")
+        changes = intended_changes_summary(conn, selected_activity)
+        if changes.empty:
+            st.info("No intended change data available.")
+        else:
+            st.dataframe(changes, use_container_width=True)
+            fig = px.bar(changes.head(15), x="response_text", y="count",
+                         title="Most Common Intended Changes")
+            fig.update_layout(xaxis_tickangle=-30)
+            st.plotly_chart(fig, use_container_width=True)
+
+    with tab_barriers:
+        st.subheader("Anticipated Barriers")
+        barriers = barriers_summary(conn, selected_activity)
+        if barriers.empty:
+            st.info("No barrier data available.")
+        else:
+            st.dataframe(barriers, use_container_width=True)
+            fig = px.bar(barriers.head(15), x="response_text", y="count",
+                         title="Most Common Anticipated Barriers")
+            fig.update_layout(xaxis_tickangle=-30)
+            st.plotly_chart(fig, use_container_width=True)
+
+    with tab_all:
+        st.subheader("All Evaluation Responses")
+        all_eval = evaluation_analysis(conn, selected_activity)
+        if all_eval.empty:
+            st.info("No evaluation data available.")
+        else:
+            category_filter = st.multiselect(
+                "Filter by category",
+                sorted(all_eval["eval_category"].dropna().unique()),
+            )
+            if category_filter:
+                all_eval = all_eval[all_eval["eval_category"].isin(category_filter)]
+            st.dataframe(all_eval, use_container_width=True)
 
     conn.close()
 
@@ -906,6 +1102,8 @@ PAGES = {
     "Data Sources": page_data_sources,
     "Data Import": page_data_import,
     "Program Catalog": page_program_catalog,
+    "Question Analysis": page_question_analysis,
+    "Evaluation Analysis": page_evaluation_analysis,
     "Employer Analysis": page_employer_analysis,
     "Temporal Analysis": page_temporal_analysis,
     "Participation Depth": page_participation_depth,
