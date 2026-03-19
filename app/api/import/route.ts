@@ -36,7 +36,43 @@ export async function POST(request: NextRequest) {
       mergedSources: init?.mergedSources,
     };
 
+    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+    const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+    // Pre-flight: verify Supabase connectivity before processing hundreds of learners
+    if (!supabaseUrl || supabaseUrl.includes("placeholder")) {
+      return NextResponse.json({
+        learnersCreated: 0, learnersUpdated: 0, participationsCreated: 0,
+        questionsCreated: 0, responsesCreated: 0, evaluationResponsesCreated: 0,
+        emailAliasesFlagged: 0,
+        errors: [`Supabase URL not configured. NEXT_PUBLIC_SUPABASE_URL=${supabaseUrl ?? "NOT SET"}`],
+        warnings: [],
+      });
+    }
+    if (!serviceKey || serviceKey === "placeholder") {
+      return NextResponse.json({
+        learnersCreated: 0, learnersUpdated: 0, participationsCreated: 0,
+        questionsCreated: 0, responsesCreated: 0, evaluationResponsesCreated: 0,
+        emailAliasesFlagged: 0,
+        errors: ["SUPABASE_SERVICE_ROLE_KEY not configured on server"],
+        warnings: [],
+      });
+    }
+
     const supabase = getServiceClient();
+
+    // Test connectivity with a simple query
+    const { error: pingError } = await supabase.from("activities").select("activity_id").limit(1);
+    if (pingError) {
+      return NextResponse.json({
+        learnersCreated: 0, learnersUpdated: 0, participationsCreated: 0,
+        questionsCreated: 0, responsesCreated: 0, evaluationResponsesCreated: 0,
+        emailAliasesFlagged: 0,
+        errors: [`Supabase connection failed: ${pingError.message} (URL: ${supabaseUrl})`],
+        warnings: [],
+      });
+    }
+
     const result = await storeParsedActivityData(supabase, parsed, activity, {
       skipActivityUpsert: skipActivityUpsert ?? !init,
       skipQuestionUpsert: skipQuestionUpsert ?? !init,
