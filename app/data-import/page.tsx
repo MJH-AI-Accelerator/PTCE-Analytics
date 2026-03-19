@@ -11,11 +11,10 @@ import { parsePigeonholeFiles } from "@/lib/parsers/pigeonhole-parser";
 import { parseSnowflakeEvalFile } from "@/lib/parsers/snowflake-eval-parser";
 import { parseSnowflakeOnDemandFile } from "@/lib/parsers/snowflake-ondemand-parser";
 import { mergeSources } from "@/lib/parsers/merge-sources";
-import { importParsedData, importLearnerBatch } from "./actions";
 import ImportResults from "@/components/ImportResults";
 import { computeImportSummary } from "@/lib/analytics/import-summary";
 import type { DataSource, DetectedFile, ParsedActivityData, AnswerKeyEntry, MergeResult } from "@/lib/parsers/types";
-import type { ActivityMetadata } from "@/lib/ingestion/pipeline";
+import type { ActivityMetadata, IngestResult } from "@/lib/ingestion/pipeline";
 
 type Step = "source" | "upload" | "answer-key" | "preview" | "activity" | "results";
 
@@ -153,6 +152,27 @@ export default function DataImport() {
 
   const BATCH_SIZE = 50; // learners per chunk
 
+  async function sendBatch(
+    learners: typeof parsed extends null ? never : NonNullable<typeof parsed>["learners"],
+    activityMeta: ActivityMetadata,
+    init?: Omit<ParsedActivityData, "learners">
+  ): Promise<IngestResult> {
+    const res = await fetch("/api/import", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        activity: activityMeta,
+        learners,
+        init: init ?? undefined,
+      }),
+    });
+    if (!res.ok) {
+      const text = await res.text();
+      throw new Error(`Import request failed (${res.status}): ${text}`);
+    }
+    return res.json();
+  }
+
   const handleImport = async () => {
     if (!parsed || !activity.activity_id || !activity.activity_name) return;
     setImporting(true);
@@ -160,19 +180,7 @@ export default function DataImport() {
 
     try {
       const totalLearners = parsed.learners.length;
-
-      // For small datasets, use the single-call approach
-      if (totalLearners <= BATCH_SIZE) {
-        setImportProgress("Importing data...");
-        const res = await importParsedData(parsed, activity);
-        setResult(res);
-        setStep("results");
-        setImporting(false);
-        return;
-      }
-
-      // Large dataset: send in batches
-      const combined = {
+      const combined: IngestResult = {
         learnersCreated: 0,
         learnersUpdated: 0,
         participationsCreated: 0,
@@ -180,35 +188,36 @@ export default function DataImport() {
         responsesCreated: 0,
         evaluationResponsesCreated: 0,
         emailAliasesFlagged: 0,
-        errors: [] as string[],
-        warnings: [] as string[],
+        errors: [],
+        warnings: [],
       };
 
       const totalBatches = Math.ceil(totalLearners / BATCH_SIZE);
 
       for (let i = 0; i < totalLearners; i += BATCH_SIZE) {
         const batchNum = Math.floor(i / BATCH_SIZE) + 1;
-        setImportProgress(`Processing batch ${batchNum} of ${totalBatches} (${Math.min(i + BATCH_SIZE, totalLearners)}/${totalLearners} learners)...`);
+        setImportProgress(
+          totalBatches === 1
+            ? "Importing data..."
+            : `Processing batch ${batchNum} of ${totalBatches} (${Math.min(i + BATCH_SIZE, totalLearners)}/${totalLearners} learners)...`
+        );
 
         const batch = parsed.learners.slice(i, i + BATCH_SIZE);
         const isFirst = i === 0;
 
-        const res = await importLearnerBatch(
-          activity.activity_id,
+        const res = await sendBatch(
           batch,
           activity,
           isFirst
             ? {
-                parsed: {
-                  source: parsed.source,
-                  sourceFileName: parsed.sourceFileName,
-                  suggestedActivityName: parsed.suggestedActivityName,
-                  questions: parsed.questions,
-                  warnings: parsed.warnings,
-                  excludedCount: parsed.excludedCount,
-                  metadata: parsed.metadata,
-                  mergedSources: parsed.mergedSources,
-                },
+                source: parsed.source,
+                sourceFileName: parsed.sourceFileName,
+                suggestedActivityName: parsed.suggestedActivityName,
+                questions: parsed.questions,
+                warnings: parsed.warnings,
+                excludedCount: parsed.excludedCount,
+                metadata: parsed.metadata,
+                mergedSources: parsed.mergedSources,
               }
             : undefined
         );
