@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useCallback } from "react";
+import SourceSelector from "@/components/SourceSelector";
 import MultiFileUploader from "@/components/MultiFileUploader";
 import AnswerKeyUploader from "@/components/AnswerKeyUploader";
 import ParsePreview from "@/components/ParsePreview";
@@ -11,13 +12,14 @@ import { parseSnowflakeEvalFile } from "@/lib/parsers/snowflake-eval-parser";
 import { parseSnowflakeOnDemandFile } from "@/lib/parsers/snowflake-ondemand-parser";
 import { mergeSources } from "@/lib/parsers/merge-sources";
 import { importParsedData } from "./actions";
-import type { DetectedFile, ParsedActivityData, AnswerKeyEntry, MergeResult } from "@/lib/parsers/types";
+import type { DataSource, DetectedFile, ParsedActivityData, AnswerKeyEntry, MergeResult } from "@/lib/parsers/types";
 import type { ActivityMetadata } from "@/lib/ingestion/pipeline";
 
-type Step = "upload" | "answer-key" | "preview" | "activity" | "results";
+type Step = "source" | "upload" | "answer-key" | "preview" | "activity" | "results";
 
-const STEPS: Step[] = ["upload", "answer-key", "preview", "activity", "results"];
+const STEPS: Step[] = ["source", "upload", "answer-key", "preview", "activity", "results"];
 const STEP_LABELS: Record<Step, string> = {
+  source: "Source",
   upload: "Upload",
   "answer-key": "Answer Key",
   preview: "Preview",
@@ -26,7 +28,8 @@ const STEP_LABELS: Record<Step, string> = {
 };
 
 export default function DataImport() {
-  const [step, setStep] = useState<Step>("upload");
+  const [step, setStep] = useState<Step>("source");
+  const [selectedSource, setSelectedSource] = useState<DataSource | "auto">("auto");
   const [files, setFiles] = useState<DetectedFile[]>([]);
   const [parsed, setParsed] = useState<ParsedActivityData | null>(null);
   const [mergeResult, setMergeResult] = useState<MergeResult | null>(null);
@@ -76,7 +79,6 @@ export default function DataImport() {
         );
         parsedFiles.push(result);
       } else if (pigeonholeFiles.length === 1) {
-        // Single Pigeonhole file — parse as pre-only
         const result = parsePigeonholeFiles(
           pigeonholeFiles[0].buffer,
           pigeonholeFiles[0].buffer,
@@ -136,11 +138,7 @@ export default function DataImport() {
         }));
       }
 
-      // Determine if we need answer key step
-      const hasAssessment = merge.merged.questions.some((q) => q.questionType === "assessment");
-      const needsAnswerKey = hasAssessment && !hasHL;
-
-      setStep(needsAnswerKey ? "answer-key" : "preview");
+      setStep("answer-key");
     } catch (err) {
       alert(`Parse error: ${err instanceof Error ? err.message : "Unknown error"}`);
     }
@@ -175,7 +173,8 @@ export default function DataImport() {
   };
 
   const resetWizard = () => {
-    setStep("upload");
+    setStep("source");
+    setSelectedSource("auto");
     setFiles([]);
     setParsed(null);
     setMergeResult(null);
@@ -219,7 +218,24 @@ export default function DataImport() {
         ))}
       </div>
 
-      {/* Step 1: Upload */}
+      {/* Step 1: Source Selection */}
+      {step === "source" && (
+        <div className="space-y-6">
+          <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
+            <SourceSelector selected={selectedSource} onChange={setSelectedSource} />
+          </div>
+          <div className="flex gap-3">
+            <button
+              onClick={() => setStep("upload")}
+              className="px-4 py-2 bg-teal-500 text-white rounded-lg text-sm hover:bg-teal-600"
+            >
+              Next: Upload Files
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Step 2: Upload */}
       {step === "upload" && (
         <div className="space-y-6">
           <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
@@ -227,6 +243,12 @@ export default function DataImport() {
           </div>
 
           <div className="flex gap-3">
+            <button
+              onClick={() => setStep("source")}
+              className="px-4 py-2 border rounded-lg text-sm hover:bg-navy-50"
+            >
+              Back
+            </button>
             <button
               onClick={handleParse}
               disabled={files.length === 0 || detectedCount === 0}
@@ -243,7 +265,7 @@ export default function DataImport() {
         </div>
       )}
 
-      {/* Step 2: Answer Key (conditional) */}
+      {/* Step 3: Answer Key */}
       {step === "answer-key" && (
         <div className="space-y-6">
           <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
@@ -259,11 +281,19 @@ export default function DataImport() {
             >
               Back
             </button>
+            {hasHighlighting && (
+              <button
+                onClick={() => setStep("preview")}
+                className="px-4 py-2 bg-teal-500 text-white rounded-lg text-sm hover:bg-teal-600"
+              >
+                Next: Preview
+              </button>
+            )}
           </div>
         </div>
       )}
 
-      {/* Step 3: Parse Preview */}
+      {/* Step 4: Parse Preview */}
       {step === "preview" && parsed && (
         <div className="space-y-6">
           <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
@@ -271,7 +301,7 @@ export default function DataImport() {
           </div>
           <div className="flex gap-3">
             <button
-              onClick={() => setStep("upload")}
+              onClick={() => setStep("answer-key")}
               className="px-4 py-2 border rounded-lg text-sm hover:bg-navy-50"
             >
               Back
@@ -286,7 +316,7 @@ export default function DataImport() {
         </div>
       )}
 
-      {/* Step 4: Activity Metadata */}
+      {/* Step 5: Activity Metadata */}
       {step === "activity" && parsed && (
         <div className="space-y-6">
           <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
@@ -384,7 +414,7 @@ export default function DataImport() {
         </div>
       )}
 
-      {/* Step 5: Results */}
+      {/* Step 6: Results */}
       {step === "results" && result && (
         <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
           <h2 className="text-lg font-semibold mb-4">Import Results</h2>
