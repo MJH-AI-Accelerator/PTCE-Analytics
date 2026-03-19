@@ -179,41 +179,48 @@ export default function ImportResults({ summary, errors, warnings, onReset }: Im
               <span className="font-medium">Needs attention:</span> {summary.weakestCategory} (lowest post-test performance)
             </div>
           )}
-          {/* Vertical bar chart */}
-          <div className="flex items-end justify-center gap-8 pt-4" style={{ minHeight: 220 }}>
+          <div className="space-y-4">
             {summary.categoryPerformance.map((c) => (
-              <div key={c.category} className="flex flex-col items-center gap-1">
-                {/* Bars */}
-                <div className="flex items-end gap-1" style={{ height: 160 }}>
-                  {/* Pre bar */}
-                  <div className="flex flex-col items-center justify-end" style={{ height: 160 }}>
-                    <span className="text-[10px] text-teal-800 font-semibold mb-1">{c.preCorrectPct}%</span>
-                    <div
-                      className="w-10 bg-teal-200 rounded-t"
-                      style={{ height: `${Math.max((c.preCorrectPct / 100) * 140, 4)}px` }}
-                    />
+              <div key={c.category}>
+                <div className="flex items-center justify-between mb-1">
+                  <div className="text-sm text-navy-600 font-medium truncate" title={c.category}>
+                    {c.category}
+                    <span className="text-navy-400 font-normal ml-1">({c.questionNumbers.map((n) => `Q${n}`).join(", ")})</span>
                   </div>
-                  {/* Post bar */}
-                  <div className="flex flex-col items-center justify-end" style={{ height: 160 }}>
-                    <span className="text-[10px] text-teal-700 font-semibold mb-1">{c.postCorrectPct}%</span>
-                    <div
-                      className="w-10 bg-teal-600 rounded-t"
-                      style={{ height: `${Math.max((c.postCorrectPct / 100) * 140, 4)}px` }}
-                    />
+                  <div className={`text-xs font-medium ${changeColor(c.changePct)}`}>
+                    {changePrefix(c.changePct)}{c.changePct}%
                   </div>
                 </div>
-                {/* Labels */}
-                <div className="border-t border-gray-200 pt-1 text-center w-full">
-                  <div className="text-xs font-medium text-navy-600">{c.questionNumbers.map((n) => `Q${n}`).join(", ")}</div>
-                  <div className="text-[10px] text-navy-400 max-w-[120px] leading-tight mt-0.5">{c.category}</div>
-                  <div className={`text-[10px] font-semibold mt-0.5 ${changeColor(c.changePct)}`}>
-                    {changePrefix(c.changePct)}{c.changePct}%
+                <div className="space-y-2">
+                  {/* Pre bar — light */}
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs text-navy-400 w-9 shrink-0">Pre</span>
+                    <div className="flex-1 bg-gray-100 rounded h-6 overflow-hidden">
+                      <div
+                        className="h-full bg-teal-200 rounded flex items-center justify-end px-2"
+                        style={{ width: `${Math.max(Math.min(c.preCorrectPct, 100), 10)}%` }}
+                      >
+                        <span className="text-xs text-teal-800 font-semibold">{c.preCorrectPct}%</span>
+                      </div>
+                    </div>
+                  </div>
+                  {/* Post bar — dark */}
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs text-navy-400 w-9 shrink-0">Post</span>
+                    <div className="flex-1 bg-gray-100 rounded h-6 overflow-hidden">
+                      <div
+                        className="h-full bg-teal-600 rounded flex items-center justify-end px-2"
+                        style={{ width: `${Math.max(Math.min(c.postCorrectPct, 100), 10)}%` }}
+                      >
+                        <span className="text-xs text-white font-semibold">{c.postCorrectPct}%</span>
+                      </div>
+                    </div>
                   </div>
                 </div>
               </div>
             ))}
           </div>
-          <div className="flex items-center justify-center gap-4 mt-3 text-xs text-navy-400">
+          <div className="flex items-center gap-4 mt-3 text-xs text-navy-400">
             <span className="flex items-center gap-1"><span className="w-3 h-3 bg-teal-200 rounded inline-block" /> Pre</span>
             <span className="flex items-center gap-1"><span className="w-3 h-3 bg-teal-600 rounded inline-block" /> Post</span>
           </div>
