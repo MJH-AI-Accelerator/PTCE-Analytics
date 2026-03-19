@@ -124,8 +124,8 @@ export default function ImportResults({ summary, errors, warnings, onReset }: Im
                 {summary.questionPerformance.map((q) => (
                   <tr key={q.questionNumber} className="border-b border-gray-100">
                     <td className="py-2 px-2 font-medium text-navy-600">Q{q.questionNumber}</td>
-                    <td className="py-2 px-2 text-navy-600 max-w-xs truncate" title={q.questionText}>
-                      {q.questionText.length > 80 ? q.questionText.slice(0, 80) + "..." : q.questionText}
+                    <td className="py-2 px-2 text-navy-600 text-xs leading-snug">
+                      {q.questionText}
                     </td>
                     <td className="py-2 px-2 text-navy-500 text-xs max-w-[150px] truncate" title={q.correctAnswer ?? ""}>
                       {q.correctAnswer ?? "—"}
