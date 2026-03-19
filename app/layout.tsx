@@ -23,7 +23,7 @@ export default function RootLayout({
         <ToastProvider>
           <div className="flex h-screen">
             <Sidebar />
-            <main className="flex-1 overflow-auto bg-gray-50/50 p-4 lg:p-8 pt-16 lg:pt-8">
+            <main className="flex-1 overflow-auto bg-gray-50/50 p-4 lg:p-8">
               <ErrorBoundary>
                 {children}
               </ErrorBoundary>
