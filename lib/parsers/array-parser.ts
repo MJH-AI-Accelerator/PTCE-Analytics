@@ -6,9 +6,7 @@ import type {
   ParsedLearnerResponse,
   ParsedPresenterResponse,
   ParseWarning,
-  QuestionType,
 } from "./types";
-import { extractAnswerKeyFromHighlighting } from "./answer-key";
 import {
   likertToNumeric,
   confidenceBinary,
@@ -20,46 +18,51 @@ import {
 /**
  * Parse an Array report Excel file.
  * Expected sheets: Survey, Survey Summary, Reportable Participants, optionally Presenter Questions.
- * Multi-row header (rows 1-8), data from row 9.
- * Correct answers detected via #B5E09B cell background highlighting.
+ *
+ * Header structure (multi-row):
+ *   Row 3: Section headers (Email, First Name, Demographics, Pre/Post, ARS, Pulse, etc.)
+ *   Row 4: Sub-group labels (Demo - Employer, Pre/Post 1, Pre/Post 2, Confidence, ARS 1, etc.)
+ *   Row 5: Full question text
+ *   Row 7: Phase indicators (In-Meeting (Pre) / In-Meeting (Post))
+ *   Row 8: "Clarification Text" markers for "Other" demographic fields
+ *   Row 9+: Learner data
+ *
+ * Correct answers detected via #B5E09B cell background (fgColor.rgb).
  */
 export function parseArrayFile(buffer: ArrayBuffer, fileName: string): ParsedActivityData {
   const workbook = XLSX.read(buffer, { type: "array", cellStyles: true });
   const warnings: ParseWarning[] = [];
 
-  // Extract answer key from highlighting before full parse
-  const answerKey = extractAnswerKeyFromHighlighting(buffer, "Survey");
-
-  // Parse the Survey sheet
   const surveySheet = workbook.Sheets["Survey"];
   if (!surveySheet) {
-    return emptyResult("array", fileName, [{ type: "format", message: "'Survey' sheet not found" }]);
+    return emptyResult(fileName, [{ type: "format", message: "'Survey' sheet not found" }]);
   }
 
   const range = XLSX.utils.decode_range(surveySheet["!ref"] || "A1");
 
-  // Row 8 (0-indexed 7) contains column headers
-  const headerRow = 7;
-  const headers: { col: number; text: string }[] = [];
-  for (let c = range.s.c; c <= range.e.c; c++) {
-    const addr = XLSX.utils.encode_cell({ r: headerRow, c });
-    const cell = surveySheet[addr];
-    if (cell && cell.v != null) {
-      headers.push({ col: c, text: String(cell.v).trim() });
-    }
-  }
+  // Read all header rows
+  const getCell = (r: number, c: number) => {
+    const addr = XLSX.utils.encode_cell({ r, c });
+    return surveySheet[addr];
+  };
+  const getCellValue = (r: number, c: number): string => {
+    const cell = getCell(r, c);
+    return cell && cell.v != null ? String(cell.v).trim() : "";
+  };
 
-  // Classify columns
-  const classified = classifyArrayColumns(headers);
+  // Classify columns using multi-row header structure
+  const classified = classifyColumns(range, getCellValue);
 
-  // Extract questions from classification
+  // Detect answer key from #B5E09B cell highlighting
+  const answerKeyMap = detectAnswerKey(surveySheet, range, classified);
+
+  // Build questions
   const questions: ParsedQuestion[] = [];
-  const answerKeyMap = new Map(answerKey.map((a) => [a.questionNumber, a.correctAnswer]));
 
   for (const q of classified.assessmentQuestions) {
     questions.push({
       questionNumber: q.questionNumber,
-      questionText: q.headerText,
+      questionText: q.questionText,
       questionType: "assessment",
       correctAnswer: answerKeyMap.get(q.questionNumber),
     });
@@ -68,7 +71,7 @@ export function parseArrayFile(buffer: ArrayBuffer, fileName: string): ParsedAct
   for (const q of classified.confidenceQuestions) {
     questions.push({
       questionNumber: q.questionNumber,
-      questionText: q.headerText,
+      questionText: q.questionText,
       questionType: "confidence",
     });
   }
@@ -76,7 +79,7 @@ export function parseArrayFile(buffer: ArrayBuffer, fileName: string): ParsedAct
   for (const q of classified.arsQuestions) {
     questions.push({
       questionNumber: q.questionNumber,
-      questionText: q.headerText,
+      questionText: q.questionText,
       questionType: "ars",
     });
   }
@@ -84,7 +87,7 @@ export function parseArrayFile(buffer: ArrayBuffer, fileName: string): ParsedAct
   for (const q of classified.pulseQuestions) {
     questions.push({
       questionNumber: q.questionNumber,
-      questionText: q.headerText,
+      questionText: q.questionText,
       questionType: "pulse",
     });
   }
@@ -94,31 +97,27 @@ export function parseArrayFile(buffer: ArrayBuffer, fileName: string): ParsedAct
   const dataStartRow = 8;
 
   for (let r = dataStartRow; r <= range.e.r; r++) {
-    const getCellValue = (col: number): string | null => {
-      const addr = XLSX.utils.encode_cell({ r, c: col });
-      const cell = surveySheet[addr];
+    const getVal = (col: number): string | null => {
+      if (col < 0) return null;
+      const cell = getCell(r, col);
       if (!cell || cell.v == null || cell.v === "") return null;
       return String(cell.v).trim();
     };
 
-    // Extract identity fields
-    const email = getCellValue(classified.emailCol);
-    if (!email) {
-      warnings.push({ type: "missing_data", message: `Row ${r + 1}: Missing email, skipped`, context: `row_${r + 1}` });
-      continue;
-    }
+    const email = getVal(classified.emailCol);
+    if (!email) continue;
 
-    const firstName = getCellValue(classified.firstNameCol);
-    const lastName = getCellValue(classified.lastNameCol);
-    const employer = getCellValue(classified.employerCol);
+    const firstName = getVal(classified.firstNameCol);
+    const lastName = getVal(classified.lastNameCol);
+    const employer = getVal(classified.employerCol);
 
     // Demographics
     const demographics: Record<string, string | null> = {};
     for (const demo of classified.demographicCols) {
-      let value = getCellValue(demo.col);
-      // Merge "Other" + clarification
-      if (value?.toLowerCase() === "other" && demo.clarificationCol != null) {
-        const clarification = getCellValue(demo.clarificationCol);
+      let value = getVal(demo.col);
+      // Merge "Other" + clarification text
+      if (value?.toLowerCase() === "other" && demo.clarificationCol >= 0) {
+        const clarification = getVal(demo.clarificationCol);
         if (clarification) {
           value = `Other (${clarification})`;
         }
@@ -130,8 +129,8 @@ export function parseArrayFile(buffer: ArrayBuffer, fileName: string): ParsedAct
     const responses: ParsedLearnerResponse[] = [];
 
     for (const q of classified.assessmentQuestions) {
-      const preAnswer = getCellValue(q.preCol);
-      const postAnswer = getCellValue(q.postCol);
+      const preAnswer = getVal(q.preCol);
+      const postAnswer = q.postCol >= 0 ? getVal(q.postCol) : null;
       const correctAnswer = answerKeyMap.get(q.questionNumber);
 
       if (preAnswer != null) {
@@ -156,8 +155,8 @@ export function parseArrayFile(buffer: ArrayBuffer, fileName: string): ParsedAct
 
     // Confidence responses
     for (const q of classified.confidenceQuestions) {
-      const preAnswer = getCellValue(q.preCol);
-      const postAnswer = getCellValue(q.postCol);
+      const preAnswer = getVal(q.preCol);
+      const postAnswer = q.postCol >= 0 ? getVal(q.postCol) : null;
 
       if (preAnswer != null) {
         const numeric = likertToNumeric(preAnswer);
@@ -183,7 +182,7 @@ export function parseArrayFile(buffer: ArrayBuffer, fileName: string): ParsedAct
 
     // ARS responses (no scoring)
     for (const q of classified.arsQuestions) {
-      const answer = getCellValue(q.col);
+      const answer = getVal(q.col);
       if (answer != null) {
         responses.push({
           questionNumber: q.questionNumber,
@@ -197,7 +196,7 @@ export function parseArrayFile(buffer: ArrayBuffer, fileName: string): ParsedAct
 
     // Pulse responses
     for (const q of classified.pulseQuestions) {
-      const answer = getCellValue(q.col);
+      const answer = getVal(q.col);
       if (answer != null) {
         responses.push({
           questionNumber: q.questionNumber,
@@ -210,10 +209,18 @@ export function parseArrayFile(buffer: ArrayBuffer, fileName: string): ParsedAct
     }
 
     // Compute aggregates
-    const preAssessment = responses.filter((r) => r.phase === "pre" && questions.find((q) => q.questionNumber === r.questionNumber)?.questionType === "assessment");
-    const postAssessment = responses.filter((r) => r.phase === "post" && questions.find((q) => q.questionNumber === r.questionNumber)?.questionType === "assessment");
-    const preConfidence = responses.filter((r) => r.phase === "pre" && questions.find((q) => q.questionNumber === r.questionNumber)?.questionType === "confidence");
-    const postConfidence = responses.filter((r) => r.phase === "post" && questions.find((q) => q.questionNumber === r.questionNumber)?.questionType === "confidence");
+    const preAssessment = responses.filter(
+      (r) => r.phase === "pre" && classified.assessmentQuestions.some((q) => q.questionNumber === r.questionNumber)
+    );
+    const postAssessment = responses.filter(
+      (r) => r.phase === "post" && classified.assessmentQuestions.some((q) => q.questionNumber === r.questionNumber)
+    );
+    const preConfidence = responses.filter(
+      (r) => r.phase === "pre" && classified.confidenceQuestions.some((q) => q.questionNumber === r.questionNumber)
+    );
+    const postConfidence = responses.filter(
+      (r) => r.phase === "post" && classified.confidenceQuestions.some((q) => q.questionNumber === r.questionNumber)
+    );
 
     const preScore = computeAssessmentScore(preAssessment);
     const postScore = computeAssessmentScore(postAssessment);
@@ -225,8 +232,8 @@ export function parseArrayFile(buffer: ArrayBuffer, fileName: string): ParsedAct
       firstName,
       lastName,
       employer,
-      practiceSetting: demographics["practice_setting"] ?? demographics["Practice Setting"] ?? null,
-      role: demographics["role"] ?? demographics["Role"] ?? null,
+      practiceSetting: demographics["Practice Focus"] ?? demographics["Practice Type"] ?? null,
+      role: demographics["Position"] ?? null,
       demographics,
       responses,
       evaluationResponses: [],
@@ -237,22 +244,22 @@ export function parseArrayFile(buffer: ArrayBuffer, fileName: string): ParsedAct
       preConfidenceAvg: preConfAvg,
       postConfidenceAvg: postConfAvg,
       confidenceChange: confidenceChange(preConfAvg, postConfAvg),
-      comments: getCellValue(classified.commentsCol),
+      comments: null,
     });
   }
 
-  // Parse presenter questions from "Presenter Questions" tab if it exists
+  // Parse presenter questions tab
   const presenterSheet = workbook.Sheets["Presenter Questions"];
   if (presenterSheet) {
     parsePresenterQuestions(presenterSheet, learners);
   }
 
-  // Try to extract activity name from file metadata
+  // Extract activity name from row 2
   let suggestedName: string | null = null;
-  // Check row 1 of Survey sheet for activity title
-  const titleCell = surveySheet[XLSX.utils.encode_cell({ r: 0, c: 0 })];
-  if (titleCell && titleCell.v) {
-    suggestedName = String(titleCell.v).trim();
+  const titleVal = getCellValue(1, 1); // Row 2, Col B
+  if (titleVal) {
+    // Strip "Survey - " prefix if present
+    suggestedName = titleVal.replace(/^Survey\s*-\s*/i, "").trim();
   }
 
   return {
@@ -267,26 +274,55 @@ export function parseArrayFile(buffer: ArrayBuffer, fileName: string): ParsedAct
   };
 }
 
+// --- Column classification ---
+
+interface AssessmentQuestion {
+  questionNumber: number;
+  questionText: string;
+  preCol: number;
+  postCol: number;
+}
+
+interface ConfidenceQuestion {
+  questionNumber: number;
+  questionText: string;
+  preCol: number;
+  postCol: number;
+}
+
+interface SingleColQuestion {
+  questionNumber: number;
+  questionText: string;
+  col: number;
+}
+
+interface DemographicCol {
+  col: number;
+  name: string;
+  clarificationCol: number;
+}
+
 interface ClassifiedColumns {
   emailCol: number;
   firstNameCol: number;
   lastNameCol: number;
   employerCol: number;
-  commentsCol: number;
-  demographicCols: { col: number; name: string; clarificationCol?: number }[];
-  assessmentQuestions: { questionNumber: number; headerText: string; preCol: number; postCol: number }[];
-  confidenceQuestions: { questionNumber: number; headerText: string; preCol: number; postCol: number }[];
-  arsQuestions: { questionNumber: number; headerText: string; col: number }[];
-  pulseQuestions: { questionNumber: number; headerText: string; col: number }[];
+  demographicCols: DemographicCol[];
+  assessmentQuestions: AssessmentQuestion[];
+  confidenceQuestions: ConfidenceQuestion[];
+  arsQuestions: SingleColQuestion[];
+  pulseQuestions: SingleColQuestion[];
 }
 
-function classifyArrayColumns(headers: { col: number; text: string }[]): ClassifiedColumns {
+function classifyColumns(
+  range: XLSX.Range,
+  getCellValue: (r: number, c: number) => string
+): ClassifiedColumns {
   const result: ClassifiedColumns = {
     emailCol: -1,
     firstNameCol: -1,
     lastNameCol: -1,
     employerCol: -1,
-    commentsCol: -1,
     demographicCols: [],
     assessmentQuestions: [],
     confidenceQuestions: [],
@@ -294,129 +330,132 @@ function classifyArrayColumns(headers: { col: number; text: string }[]): Classif
     pulseQuestions: [],
   };
 
-  const preAssessmentCols = new Map<number, { col: number; text: string }>();
-  const postAssessmentCols = new Map<number, { col: number; text: string }>();
-  const preConfCols = new Map<number, { col: number; text: string }>();
-  const postConfCols = new Map<number, { col: number; text: string }>();
+  // Row indices (0-indexed)
+  const ROW_SECTION = 2;   // Row 3: section headers
+  const ROW_SUBLABEL = 3;  // Row 4: sub-group labels
+  const ROW_QTEXT = 4;     // Row 5: question text
+  const ROW_PHASE = 6;     // Row 7: phase (Pre/Post)
+  const ROW_CLARIF = 7;    // Row 8: clarification markers
 
-  for (const h of headers) {
-    const lower = h.text.toLowerCase();
+  // Track which section we're in
+  let currentSection = "";
+  let assessmentNum = 0;
+  let confidenceNum = 0;
+  let arsNum = 0;
+  let pulseNum = 0;
 
-    // Identity columns
-    if (/^e-?mail/i.test(h.text) || lower === "email" || lower === "email address") {
-      result.emailCol = h.col;
-    } else if (/first\s*name/i.test(h.text)) {
-      result.firstNameCol = h.col;
-    } else if (/last\s*name/i.test(h.text)) {
-      result.lastNameCol = h.col;
-    } else if (/employer|organization|company/i.test(h.text)) {
-      result.employerCol = h.col;
-    } else if (/comment/i.test(h.text)) {
-      result.commentsCol = h.col;
+  for (let c = 0; c <= range.e.c; c++) {
+    const sectionHeader = getCellValue(ROW_SECTION, c);
+    const subLabel = getCellValue(ROW_SUBLABEL, c);
+    const questionText = getCellValue(ROW_QTEXT, c);
+    const phase = getCellValue(ROW_PHASE, c);
+    const clarif = getCellValue(ROW_CLARIF, c);
+
+    // Update section from row 3
+    if (sectionHeader) {
+      if (/email/i.test(sectionHeader)) {
+        result.emailCol = c;
+        continue;
+      }
+      if (/first\s*name/i.test(sectionHeader)) {
+        result.firstNameCol = c;
+        continue;
+      }
+      if (/last\s*name/i.test(sectionHeader)) {
+        result.lastNameCol = c;
+        continue;
+      }
+      if (/demographics/i.test(sectionHeader)) {
+        currentSection = "demographics";
+      } else if (/pre\/post/i.test(sectionHeader)) {
+        currentSection = "prepost";
+      } else if (/^ars$/i.test(sectionHeader.trim())) {
+        currentSection = "ars";
+      } else if (/pulse/i.test(sectionHeader)) {
+        currentSection = "pulse";
+      }
+      // Skip metadata columns (Registration ID, Display Name, Total, Correct %)
+      if (/registration|display|total|correct\s*%/i.test(sectionHeader)) {
+        continue;
+      }
     }
 
-    // Pre/post assessment questions
-    const preQMatch = h.text.match(/pre\s*(?:test\s*)?(?:question|q)\s*(\d+)/i);
-    if (preQMatch) {
-      preAssessmentCols.set(parseInt(preQMatch[1]), h);
-      continue;
-    }
-    const postQMatch = h.text.match(/post\s*(?:test\s*)?(?:question|q)\s*(\d+)/i);
-    if (postQMatch) {
-      postAssessmentCols.set(parseInt(postQMatch[1]), h);
-      continue;
-    }
-
-    // Pre/post confidence
-    const preConfMatch = h.text.match(/pre\s*(?:test\s*)?confidence\s*(?:question\s*)?(\d+)/i);
-    if (preConfMatch) {
-      preConfCols.set(parseInt(preConfMatch[1]), h);
-      continue;
-    }
-    const postConfMatch = h.text.match(/post\s*(?:test\s*)?confidence\s*(?:question\s*)?(\d+)/i);
-    if (postConfMatch) {
-      postConfCols.set(parseInt(postConfMatch[1]), h);
-      continue;
-    }
-
-    // ARS questions
-    const arsMatch = h.text.match(/ars\s*(?:question\s*)?(\d+)/i);
-    if (arsMatch) {
-      result.arsQuestions.push({
-        questionNumber: parseInt(arsMatch[1]),
-        headerText: h.text,
-        col: h.col,
-      });
-      continue;
-    }
-
-    // Pulse questions
-    const pulseMatch = h.text.match(/pulse\s*(?:question\s*)?(\d+)/i);
-    if (pulseMatch) {
-      result.pulseQuestions.push({
-        questionNumber: parseInt(pulseMatch[1]),
-        headerText: h.text,
-        col: h.col,
-      });
-      continue;
-    }
-  }
-
-  // Pair pre/post assessment columns
-  const allAssessmentNums = new Set([...preAssessmentCols.keys(), ...postAssessmentCols.keys()]);
-  for (const qNum of [...allAssessmentNums].sort((a, b) => a - b)) {
-    const pre = preAssessmentCols.get(qNum);
-    const post = postAssessmentCols.get(qNum);
-    if (pre || post) {
-      result.assessmentQuestions.push({
-        questionNumber: qNum,
-        headerText: (pre || post)!.text,
-        preCol: pre?.col ?? -1,
-        postCol: post?.col ?? -1,
-      });
-    }
-  }
-
-  // Pair pre/post confidence columns
-  const allConfNums = new Set([...preConfCols.keys(), ...postConfCols.keys()]);
-  for (const qNum of [...allConfNums].sort((a, b) => a - b)) {
-    const pre = preConfCols.get(qNum);
-    const post = postConfCols.get(qNum);
-    if (pre || post) {
-      result.confidenceQuestions.push({
-        questionNumber: qNum + 1000, // Offset to avoid conflict with assessment numbers
-        headerText: (pre || post)!.text,
-        preCol: pre?.col ?? -1,
-        postCol: post?.col ?? -1,
-      });
-    }
-  }
-
-  // Identify demographic columns (columns that aren't identity, assessment, confidence, ars, pulse)
-  const usedCols = new Set<number>([
-    result.emailCol, result.firstNameCol, result.lastNameCol,
-    result.employerCol, result.commentsCol,
-    ...result.assessmentQuestions.flatMap((q) => [q.preCol, q.postCol]),
-    ...result.confidenceQuestions.flatMap((q) => [q.preCol, q.postCol]),
-    ...result.arsQuestions.map((q) => q.col),
-    ...result.pulseQuestions.map((q) => q.col),
-  ]);
-
-  for (const h of headers) {
-    if (!usedCols.has(h.col) && h.col >= 0) {
-      // Check if this is an "Other" clarification column
-      const isOtherClarification = /other.*specify|please\s*specify|if\s*other/i.test(h.text);
-      if (!isOtherClarification) {
-        // Check if next column is a clarification
-        const nextHeader = headers.find((hh) => hh.col === h.col + 1);
-        const clarCol = nextHeader && /other.*specify|please\s*specify|if\s*other/i.test(nextHeader.text)
-          ? nextHeader.col
-          : undefined;
+    // Process based on current section
+    if (currentSection === "demographics") {
+      if (subLabel && /demo\s*-/i.test(subLabel)) {
+        const demoName = subLabel.replace(/^demo\s*-\s*/i, "").trim();
+        if (/employer/i.test(demoName)) {
+          result.employerCol = c;
+        }
+        // Check if next column is "Clarification Text"
+        const nextClarif = getCellValue(ROW_CLARIF, c + 1);
+        const clarifCol = nextClarif.toLowerCase() === "clarification text" ? c + 1 : -1;
 
         result.demographicCols.push({
-          col: h.col,
-          name: h.text,
-          clarificationCol: clarCol,
+          col: c,
+          name: demoName,
+          clarificationCol: clarifCol,
+        });
+      }
+      // Skip clarification text columns (they're referenced by the previous demo col)
+      if (clarif.toLowerCase() === "clarification text") continue;
+    }
+
+    if (currentSection === "prepost") {
+      // Sub-label tells us which question group (Pre/Post 1, Pre/Post 2, Confidence)
+      if (subLabel) {
+        const prepostMatch = subLabel.match(/pre\/post\s*(\d+)/i);
+        const isConfidence = /confidence/i.test(subLabel);
+
+        if (prepostMatch) {
+          assessmentNum++;
+          const qNum = assessmentNum;
+          // This column is the Pre col; next column (with Post phase) is the Post col
+          const nextPhase = getCellValue(ROW_PHASE, c + 1);
+          const postCol = /post/i.test(nextPhase) ? c + 1 : -1;
+
+          result.assessmentQuestions.push({
+            questionNumber: qNum,
+            questionText: questionText || `Assessment Question ${qNum}`,
+            preCol: c,
+            postCol,
+          });
+        } else if (isConfidence) {
+          confidenceNum++;
+          const qNum = 1000 + confidenceNum;
+          const nextPhase = getCellValue(ROW_PHASE, c + 1);
+          const postCol = /post/i.test(nextPhase) ? c + 1 : -1;
+
+          result.confidenceQuestions.push({
+            questionNumber: qNum,
+            questionText: questionText || `Confidence Question ${confidenceNum}`,
+            preCol: c,
+            postCol,
+          });
+        }
+      }
+      // Skip Post columns (already captured as postCol above)
+      if (!subLabel && /post/i.test(phase)) continue;
+    }
+
+    if (currentSection === "ars") {
+      if (subLabel && /ars/i.test(subLabel)) {
+        arsNum++;
+        result.arsQuestions.push({
+          questionNumber: 2000 + arsNum,
+          questionText: questionText || `ARS Question ${arsNum}`,
+          col: c,
+        });
+      }
+    }
+
+    if (currentSection === "pulse") {
+      if (subLabel || sectionHeader) {
+        pulseNum++;
+        result.pulseQuestions.push({
+          questionNumber: 3000 + pulseNum,
+          questionText: questionText || `Pulse Question ${pulseNum}`,
+          col: c,
         });
       }
     }
@@ -424,6 +463,67 @@ function classifyArrayColumns(headers: { col: number; text: string }[]): Classif
 
   return result;
 }
+
+// --- Answer key detection ---
+
+function detectAnswerKey(
+  sheet: XLSX.WorkSheet,
+  range: XLSX.Range,
+  classified: ClassifiedColumns
+): Map<number, string> {
+  const answerKeyMap = new Map<number, string>();
+
+  // Scan data rows for #B5E09B highlighted cells in assessment columns
+  const assessmentCols = new Set<number>();
+  for (const q of classified.assessmentQuestions) {
+    assessmentCols.add(q.preCol);
+    if (q.postCol >= 0) assessmentCols.add(q.postCol);
+  }
+
+  // For each assessment question, find the correct answer from highlighted cells
+  for (const q of classified.assessmentQuestions) {
+    // Check pre column cells for highlighting
+    for (let r = 8; r <= range.e.r; r++) {
+      const preAddr = XLSX.utils.encode_cell({ r, c: q.preCol });
+      const preCell = sheet[preAddr];
+      if (preCell && isB5E09B(preCell)) {
+        const answer = String(preCell.v || "").trim();
+        if (answer && !answerKeyMap.has(q.questionNumber)) {
+          answerKeyMap.set(q.questionNumber, answer);
+          break;
+        }
+      }
+    }
+
+    // If not found in pre, check post column
+    if (!answerKeyMap.has(q.questionNumber) && q.postCol >= 0) {
+      for (let r = 8; r <= range.e.r; r++) {
+        const postAddr = XLSX.utils.encode_cell({ r, c: q.postCol });
+        const postCell = sheet[postAddr];
+        if (postCell && isB5E09B(postCell)) {
+          const answer = String(postCell.v || "").trim();
+          if (answer && !answerKeyMap.has(q.questionNumber)) {
+            answerKeyMap.set(q.questionNumber, answer);
+            break;
+          }
+        }
+      }
+    }
+  }
+
+  return answerKeyMap;
+}
+
+function isB5E09B(cell: XLSX.CellObject): boolean {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const s = cell.s as any;
+  if (!s) return false;
+  if (s.patternType !== "solid") return false;
+  const rgb = s.fgColor?.rgb || "";
+  return rgb.toUpperCase() === "B5E09B" || rgb.toUpperCase() === "FFB5E09B";
+}
+
+// --- Presenter questions ---
 
 function parsePresenterQuestions(sheet: XLSX.WorkSheet, learners: ParsedLearner[]): void {
   const jsonData = XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, { defval: "" });
@@ -433,7 +533,6 @@ function parsePresenterQuestions(sheet: XLSX.WorkSheet, learners: ParsedLearner[
   const emailCol = headers.find((h) => /email/i.test(h));
   if (!emailCol) return;
 
-  // Find question/answer column pairs
   const qaCols: { questionCol: string; answerCol: string; num: number }[] = [];
   for (const h of headers) {
     const match = h.match(/question\s*(\d+)/i);
@@ -467,9 +566,9 @@ function parsePresenterQuestions(sheet: XLSX.WorkSheet, learners: ParsedLearner[
   }
 }
 
-function emptyResult(source: "array", fileName: string, warnings: ParseWarning[]): ParsedActivityData {
+function emptyResult(fileName: string, warnings: ParseWarning[]): ParsedActivityData {
   return {
-    source,
+    source: "array",
     sourceFileName: fileName,
     suggestedActivityName: null,
     questions: [],
