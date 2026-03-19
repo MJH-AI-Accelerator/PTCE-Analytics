@@ -13,6 +13,7 @@ import {
   Database,
   Download,
   Settings,
+  Mail,
 } from "lucide-react";
 
 const mainNavItems = [
@@ -27,6 +28,7 @@ const mainNavItems = [
 const adminNavItems = [
   { href: "/data-import", label: "Data Import", icon: Upload },
   { href: "/employer-management", label: "Employer Mgmt", icon: Building },
+  { href: "/email-aliases", label: "Email Aliases", icon: Mail },
   { href: "/data-sources", label: "Data Sources", icon: Database },
 ];
 

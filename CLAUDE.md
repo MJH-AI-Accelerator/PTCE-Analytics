@@ -28,43 +28,48 @@ Pharmacy Times Continuing Education (PTCE) Learner Data Longitudinal Analysis Pl
 ## Architecture
 
 ```
-app/                    # Next.js App Router (14 routes)
+app/                    # Next.js App Router (15 routes)
 components/             # React components (Sidebar, charts, panels, upload UI)
 lib/
   queries/              # Supabase data-fetching functions
   analytics/            # Calculation/aggregation logic
-  ingestion/            # Import pipeline (normalizer, identity resolver, employer matcher)
+  ingestion/            # Storage pipeline (normalizer, identity resolver, employer matcher, question/eval storage)
+  parsers/              # Source-specific file parsers (Array, GlobalMeet, Pigeonhole, Snowflake) → CIR
   export/               # Excel and PDF generation
   connectors/           # External data source stubs (Snowflake, GlobalMeet, Array, Pigeonhole)
   supabase.ts           # Supabase client
-  database.types.ts     # TypeScript types for all DB tables
-  file-parser.ts        # CSV/Excel → JSON
-  column-mapper.ts      # Auto-detect column mappings
-  validators.ts         # Column mapping validation
-supabase/migrations/    # PostgreSQL schema (001_initial_schema.sql)
+  database.types.ts     # TypeScript types for all DB tables (16 tables)
+  file-parser.ts        # CSV/Excel → JSON (legacy generic parser)
+  column-mapper.ts      # Auto-detect column mappings (legacy)
+  validators.ts         # Column mapping validation (legacy)
+supabase/migrations/    # PostgreSQL schema (001 + 002)
 ```
 
-## Database Schema (12 tables)
+## Database Schema (16 tables)
 
 - `learners` — email (unique PK), name, employer_raw/normalized, practice_setting, role
-- `activities` — activity_id, name, type, date, therapeutic_area, disease_state, sponsor, accreditation_type, credit_hours
+- `activities` — activity_id, name, type, date, therapeutic_area, disease_state, sponsor, data_source, source_file_name, import_date
 - `learning_objectives` — per-activity objectives
-- `questions` — assessment/confidence/evaluation/pulse questions per activity
+- `questions` — assessment/confidence/evaluation/pulse/ars questions per activity
 - `question_categories` — standard categories (Pathophysiology, Clinical Updates, Patient Recommendations, Disease Burden, Role of the Pharmacist)
 - `participations` — one row per learner per activity, with aggregate pre/post scores and confidence
 - `question_responses` — individual pre/post answers per question per participation
-- `evaluation_responses` — post-activity survey responses
+- `evaluation_responses` — post-activity survey responses, with faculty_name and extended eval_categories
 - `evaluation_templates` — standard evaluation question templates
 - `employer_aliases` — raw_name → canonical_name mapping
+- `email_aliases` — primary_email → alias_email mapping for cross-platform learner matching
+- `presenter_questions` — learner Q&A questions per activity
+- `presenter_responses` — learner answers to presenter Q&A
+- `import_batches` — audit trail per import (counts, warnings, errors as JSONB)
 - `normalization_log` — audit trail for data transformations
 - `role_data` — role percentage breakdown per participation
 
-## Routes (14 pages)
+## Routes (15 pages)
 
 | Route | Purpose | Status |
 |---|---|---|
 | `/` | Dashboard — summary metrics + charts | Metrics done, charts partial |
-| `/data-import` | File upload, column mapping, ingestion pipeline | Complete |
+| `/data-import` | 6-step wizard: source select, upload, answer key, preview, activity, results | Complete |
 | `/program-catalog` | Activity catalog, question search, identical questions | Complete |
 | `/question-analysis` | Per-question stats, category analysis, confidence | Complete |
 | `/evaluation-analysis` | Practice profile, intended changes, barriers | Complete |
@@ -76,21 +81,33 @@ supabase/migrations/    # PostgreSQL schema (001_initial_schema.sql)
 | `/employer-management` | Alias table, unmatched names, normalization log | Complete |
 | `/statistical-tests` | Descriptive stats, paired t-test | Complete (ANOVA remaining) |
 | `/export` | Excel and PDF export | Complete |
+| `/email-aliases` | Admin email alias review (cross-platform matching) | Complete |
 | `/data-sources` | Connector status UI | Complete (UI only) |
 
 ## Data Flow
 
-1. **Import:** User uploads CSV/Excel → `FileUploader` → `parseFile()` → `detectColumns()` → column mapping UI → `ingestData()` server action
-2. **Normalize:** `normalizeScore()` (%, fractions → numeric), `normalizeConfidence()` (Likert text → 1-5), `normalizeEmployer()` (fuzzy match → canonical)
-3. **Identity:** `resolveOrCreateLearner()` — upsert by email, name as fallback
-4. **Query:** Pages call `lib/queries/*` → Supabase client → render
-5. **Analytics:** `lib/analytics/*` — employer stats, temporal trends, participation depth, question analysis, statistics
-6. **Export:** `lib/export/excel.ts` / `lib/export/pdf.ts` → browser download
+### New Multi-Source Pipeline (Primary)
+1. **Source Select:** User picks source type (Array, GlobalMeet, Pigeonhole, Snowflake Eval/On-Demand) or auto-detect
+2. **Parse:** Source-specific parser (`lib/parsers/*`) → Common Intermediate Representation (`ParsedActivityData`)
+3. **Answer Key:** Extract from #B5E09B cell highlighting (Array) or uploaded survey doc
+4. **Preview:** Show question counts, learner counts, warnings, exclusions
+5. **Store:** `storeParsedActivityData()` → upsert activity, questions, learners, participations, question_responses, evaluation_responses, presenter_responses
+6. **Email Matching:** Cross-platform email alias detection with admin review UI
+
+### Legacy Pipeline (Backward Compatible)
+1. **Import:** User uploads CSV/Excel → `parseFile()` → `detectColumns()` → column mapping UI → `ingestData()` server action
+
+### Shared
+- **Normalize:** `normalizeScore()`, `normalizeConfidence()`, `normalizeEmployer()`
+- **Identity:** `resolveOrCreateLearner()` — email alias lookup → upsert by email
+- **Query:** Pages call `lib/queries/*` → Supabase client → render
+- **Analytics:** `lib/analytics/*` — employer stats, temporal trends, participation depth, question analysis, statistics
+- **Export:** `lib/export/excel.ts` / `lib/export/pdf.ts` → browser download
 
 ## Implementation Status
 
-### Completed (Tasks 1-12, 14-22)
-All 14 pages built. Full ingestion pipeline, employer management, program catalog, learner views, analytics pages, statistical tests, export, data source UI, loading states, error boundaries, toast notifications.
+### Completed (Tasks 1-12, 14-22, Multi-Source Import Pipeline)
+All 15 pages built. Multi-source import pipeline with source-specific parsers (Array, GlobalMeet, Pigeonhole, Snowflake Eval/On-Demand), CIR architecture, question-level response storage, evaluation response storage, email alias cross-platform matching, import audit trail. Full ingestion pipeline, employer management, program catalog, learner views, analytics pages, statistical tests, export, data source UI, loading states, error boundaries, toast notifications.
 
 ### Remaining Work (Priority Order)
 
@@ -115,6 +132,10 @@ All 14 pages built. Full ingestion pipeline, employer management, program catalo
 - Employer normalization: raw input → Fuse.js fuzzy match → `employer_aliases` table → canonical name
 - Learner identity: email as primary key, name as fallback for disambiguation
 - Assessment formats: pre-computed scores, raw text answers (need answer key), or correct/incorrect flags — system handles all three
+- Multi-source import: File → detectSource() → source parser → ParsedActivityData (CIR) → storeParsedActivityData() → database
+- Source parsers in `lib/parsers/`: array-parser, globalmeet-parser, pigeonhole-parser, snowflake-eval-parser, snowflake-ondemand-parser
+- Storage helpers in `lib/ingestion/`: question-storage, evaluation-storage, email-alias-resolver
+- Email cross-matching: email_aliases table with medium/high confidence flags, admin review at /email-aliases
 
 ## Environment Variables
 

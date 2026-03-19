@@ -1,6 +1,6 @@
 import { SupabaseClient } from "@supabase/supabase-js";
 
-interface LearnerData {
+export interface LearnerData {
   email: string;
   first_name?: string | null;
   last_name?: string | null;
@@ -14,8 +14,20 @@ export async function resolveOrCreateLearner(
   supabase: SupabaseClient,
   data: LearnerData
 ): Promise<number> {
-  const email = data.email.trim().toLowerCase();
+  let email = data.email.trim().toLowerCase();
   if (!email) throw new Error("Email is required for learner identity resolution");
+
+  // Check email aliases — resolve to primary email if this is a known alias
+  const { data: alias } = await supabase
+    .from("email_aliases")
+    .select("primary_email")
+    .eq("alias_email", email)
+    .eq("reviewed", true)
+    .single();
+
+  if (alias) {
+    email = alias.primary_email;
+  }
 
   // Check if exists
   const { data: existing } = await supabase

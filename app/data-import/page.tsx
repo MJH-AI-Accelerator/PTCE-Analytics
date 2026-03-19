@@ -1,23 +1,40 @@
 "use client";
 
-import { useState } from "react";
-import FileUploader from "@/components/FileUploader";
-import DataPreviewTable from "@/components/DataPreviewTable";
-import ColumnMappingEditor from "@/components/ColumnMappingEditor";
-import { parseFile, type ParsedFile } from "@/lib/file-parser";
-import { detectColumns } from "@/lib/column-mapper";
-import { validateMapping } from "@/lib/validators";
-import { importData } from "./actions";
+import { useState, useCallback } from "react";
+import SourceSelector from "@/components/SourceSelector";
+import MultiFileUploader, { type FileEntry } from "@/components/MultiFileUploader";
+import AnswerKeyUploader from "@/components/AnswerKeyUploader";
+import ParsePreview from "@/components/ParsePreview";
+import { detectSource } from "@/lib/parsers/detect-source";
+import { parseArrayFile } from "@/lib/parsers/array-parser";
+import { parseGlobalMeetFile, mergeGlobalMeetFiles } from "@/lib/parsers/globalmeet-parser";
+import { parsePigeonholeFiles } from "@/lib/parsers/pigeonhole-parser";
+import { parseSnowflakeEvalFile } from "@/lib/parsers/snowflake-eval-parser";
+import { parseSnowflakeOnDemandFile } from "@/lib/parsers/snowflake-ondemand-parser";
+import { importParsedData } from "./actions";
+import type { DataSource, ParsedActivityData, AnswerKeyEntry } from "@/lib/parsers/types";
 import type { ActivityMetadata } from "@/lib/ingestion/pipeline";
 
-type Step = "upload" | "activity" | "mapping" | "import";
+type Step = "source" | "upload" | "answer-key" | "preview" | "activity" | "results";
+
+const STEP_LABELS: Record<Step, string> = {
+  source: "Source",
+  upload: "Upload",
+  "answer-key": "Answer Key",
+  preview: "Preview",
+  activity: "Activity Info",
+  results: "Results",
+};
+
+const STEPS: Step[] = ["source", "upload", "answer-key", "preview", "activity", "results"];
 
 export default function DataImport() {
-  const [step, setStep] = useState<Step>("upload");
-  const [parsed, setParsed] = useState<ParsedFile | null>(null);
-  const [fileName, setFileName] = useState("");
-  const [mapping, setMapping] = useState<Record<string, string | null>>({});
-  const [autoMapping, setAutoMapping] = useState<Record<string, string | null>>({});
+  const [step, setStep] = useState<Step>("source");
+  const [selectedSource, setSelectedSource] = useState<DataSource | "auto">("auto");
+  const [detectedSource, setDetectedSource] = useState<DataSource | null>(null);
+  const [files, setFiles] = useState<FileEntry[]>([]);
+  const [parsed, setParsed] = useState<ParsedActivityData | null>(null);
+  const [hasHighlighting, setHasHighlighting] = useState(false);
   const [activity, setActivity] = useState<ActivityMetadata>({
     activity_id: "",
     activity_name: "",
@@ -32,36 +49,140 @@ export default function DataImport() {
     learnersCreated: number;
     learnersUpdated: number;
     participationsCreated: number;
+    questionsCreated: number;
+    responsesCreated: number;
+    evaluationResponsesCreated: number;
+    emailAliasesFlagged: number;
     errors: string[];
+    warnings: string[];
   } | null>(null);
 
-  const handleFileLoaded = (buffer: ArrayBuffer, name: string) => {
-    const data = parseFile(buffer);
-    setParsed(data);
-    setFileName(name);
-    const detected = detectColumns(data.headers);
-    setMapping(detected);
-    setAutoMapping(detected);
-    setStep("activity");
-  };
+  const effectiveSource = selectedSource === "auto" ? detectedSource : selectedSource;
+  const needsTwoFiles = effectiveSource === "pigeonhole";
+  const maxFiles = needsTwoFiles ? 2 : (effectiveSource === "globalmeet" ? 2 : 1);
+
+  const handleFilesChange = useCallback((newFiles: FileEntry[]) => {
+    setFiles(newFiles);
+
+    // Auto-detect source from first file if in auto mode
+    if (selectedSource === "auto" && newFiles.length > 0) {
+      const detection = detectSource(newFiles[0].buffer);
+      if (detection) {
+        setDetectedSource(detection.source);
+      }
+    }
+  }, [selectedSource]);
+
+  const handleParse = useCallback(() => {
+    if (!effectiveSource || files.length === 0) return;
+
+    try {
+      let result: ParsedActivityData;
+
+      switch (effectiveSource) {
+        case "array":
+          result = parseArrayFile(files[0].buffer, files[0].name);
+          setHasHighlighting(result.questions.some((q) => q.correctAnswer != null));
+          break;
+        case "globalmeet":
+          if (files.length === 2) {
+            const parsed1 = parseGlobalMeetFile(files[0].buffer, files[0].name);
+            const parsed2 = parseGlobalMeetFile(files[1].buffer, files[1].name);
+            result = mergeGlobalMeetFiles([parsed1, parsed2]);
+          } else {
+            result = parseGlobalMeetFile(files[0].buffer, files[0].name);
+          }
+          setHasHighlighting(false);
+          break;
+        case "pigeonhole":
+          if (files.length < 2) {
+            alert("Pigeonhole requires both pretest and posttest files");
+            return;
+          }
+          result = parsePigeonholeFiles(files[0].buffer, files[1].buffer, files[0].name, files[1].name);
+          setHasHighlighting(false);
+          break;
+        case "snowflake_eval":
+          result = parseSnowflakeEvalFile(files[0].buffer, files[0].name);
+          setHasHighlighting(false);
+          break;
+        case "snowflake_ondemand":
+          result = parseSnowflakeOnDemandFile(files[0].buffer, files[0].name);
+          setHasHighlighting(false);
+          break;
+        default:
+          return;
+      }
+
+      setParsed(result);
+
+      // Pre-populate activity metadata
+      if (result.suggestedActivityName) {
+        setActivity((prev) => ({
+          ...prev,
+          activity_name: prev.activity_name || result.suggestedActivityName || "",
+        }));
+      }
+
+      // Skip answer key step if source has highlighting or is eval-only
+      if (effectiveSource === "snowflake_eval" || (effectiveSource === "array" && result.questions.some((q) => q.correctAnswer))) {
+        setStep("preview");
+      } else {
+        setStep("answer-key");
+      }
+    } catch (err) {
+      alert(`Parse error: ${err instanceof Error ? err.message : "Unknown error"}`);
+    }
+  }, [effectiveSource, files]);
+
+  const handleAnswerKeyLoaded = useCallback((_entries: AnswerKeyEntry[]) => {
+    // Answer key entries would be applied to parsed questions here
+    // For now, advance to preview
+    setStep("preview");
+  }, []);
 
   const handleImport = async () => {
     if (!parsed || !activity.activity_id || !activity.activity_name) return;
     setImporting(true);
     try {
-      const res = await importData(parsed.rows, mapping, activity);
+      // Serialize parsed data for server action (ArrayBuffers can't be sent)
+      const res = await importParsedData(parsed, activity);
       setResult(res);
-      setStep("import");
+      setStep("results");
     } catch (err) {
       setResult({
         learnersCreated: 0,
         learnersUpdated: 0,
         participationsCreated: 0,
+        questionsCreated: 0,
+        responsesCreated: 0,
+        evaluationResponsesCreated: 0,
+        emailAliasesFlagged: 0,
         errors: [err instanceof Error ? err.message : "Import failed"],
+        warnings: [],
       });
-      setStep("import");
+      setStep("results");
     }
     setImporting(false);
+  };
+
+  const resetWizard = () => {
+    setStep("source");
+    setSelectedSource("auto");
+    setDetectedSource(null);
+    setFiles([]);
+    setParsed(null);
+    setHasHighlighting(false);
+    setActivity({
+      activity_id: "",
+      activity_name: "",
+      activity_type: "",
+      activity_date: "",
+      therapeutic_area: "",
+      disease_state: "",
+      sponsor: "",
+    });
+    setResult(null);
   };
 
   return (
@@ -69,42 +190,128 @@ export default function DataImport() {
       <h1 className="text-2xl font-bold mb-6">Data Import</h1>
 
       {/* Step indicators */}
-      <div className="flex gap-2 mb-8">
-        {(["upload", "activity", "mapping", "import"] as Step[]).map((s, i) => (
+      <div className="flex gap-1.5 mb-8 overflow-x-auto">
+        {STEPS.map((s, i) => (
           <div
             key={s}
-            className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium ${
+            className={`flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-medium whitespace-nowrap ${
               step === s
                 ? "bg-teal-500 text-white"
-                : i < ["upload", "activity", "mapping", "import"].indexOf(step)
+                : STEPS.indexOf(step) > i
                 ? "bg-teal-100 text-teal-700"
                 : "bg-navy-50 text-navy-300"
             }`}
           >
-            <span className="w-6 h-6 rounded-full bg-white/20 flex items-center justify-center text-xs">
+            <span className="w-5 h-5 rounded-full bg-white/20 flex items-center justify-center text-[10px]">
               {i + 1}
             </span>
-            {s === "upload" ? "Upload" : s === "activity" ? "Activity Info" : s === "mapping" ? "Map Columns" : "Results"}
+            {STEP_LABELS[s]}
           </div>
         ))}
       </div>
 
-      {/* Step 1: Upload */}
-      {step === "upload" && <FileUploader onFileLoaded={handleFileLoaded} />}
-
-      {/* Step 2: Activity Info + Preview */}
-      {step === "activity" && parsed && (
+      {/* Step 1: Source Selection */}
+      {step === "source" && (
         <div className="space-y-6">
           <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
-            <div className="flex items-center justify-between mb-4">
-              <h2 className="text-lg font-semibold">File: {fileName}</h2>
-              <span className="text-sm text-navy-400">
-                {parsed.rows.length} rows, {parsed.headers.length} columns
-              </span>
-            </div>
-            <DataPreviewTable headers={parsed.headers} rows={parsed.rows} />
+            <SourceSelector selected={selectedSource} onChange={setSelectedSource} />
+          </div>
+          <div className="flex gap-3">
+            <button
+              onClick={() => setStep("upload")}
+              className="px-4 py-2 bg-teal-500 text-white rounded-lg text-sm hover:bg-teal-600"
+            >
+              Next: Upload Files
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Step 2: File Upload */}
+      {step === "upload" && (
+        <div className="space-y-6">
+          <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
+            <MultiFileUploader
+              files={files}
+              onFilesChange={handleFilesChange}
+              maxFiles={maxFiles}
+              label={needsTwoFiles ? "Upload Pretest & Posttest Files" : effectiveSource === "globalmeet" ? "Upload Webinar Report(s)" : "Upload Data File"}
+              hint={needsTwoFiles ? "Upload both pretest and posttest .xlsx files" : effectiveSource === "globalmeet" ? "Upload 1 or 2 broadcast reports (.xlsx)" : "Supports .xlsx, .xls, .csv"}
+            />
+
+            {/* Auto-detect result */}
+            {selectedSource === "auto" && detectedSource && (
+              <div className="mt-4 p-3 bg-teal-50 border border-teal-200 rounded-lg text-sm">
+                <span className="font-medium text-teal-700">Detected: </span>
+                <span className="text-teal-600">{formatSource(detectedSource)}</span>
+              </div>
+            )}
           </div>
 
+          <div className="flex gap-3">
+            <button
+              onClick={() => setStep("source")}
+              className="px-4 py-2 border rounded-lg text-sm hover:bg-navy-50"
+            >
+              Back
+            </button>
+            <button
+              onClick={handleParse}
+              disabled={files.length === 0 || !effectiveSource || (needsTwoFiles && files.length < 2)}
+              className="px-4 py-2 bg-teal-500 text-white rounded-lg text-sm hover:bg-teal-600 disabled:opacity-50"
+            >
+              Parse Files
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Step 3: Answer Key (conditional) */}
+      {step === "answer-key" && (
+        <div className="space-y-6">
+          <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
+            <AnswerKeyUploader
+              onAnswerKeyLoaded={handleAnswerKeyLoaded}
+              hasHighlighting={hasHighlighting}
+            />
+          </div>
+          <div className="flex gap-3">
+            <button
+              onClick={() => setStep("upload")}
+              className="px-4 py-2 border rounded-lg text-sm hover:bg-navy-50"
+            >
+              Back
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Step 4: Parse Preview */}
+      {step === "preview" && parsed && (
+        <div className="space-y-6">
+          <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
+            <ParsePreview parsed={parsed} />
+          </div>
+          <div className="flex gap-3">
+            <button
+              onClick={() => setStep("answer-key")}
+              className="px-4 py-2 border rounded-lg text-sm hover:bg-navy-50"
+            >
+              Back
+            </button>
+            <button
+              onClick={() => setStep("activity")}
+              className="px-4 py-2 bg-teal-500 text-white rounded-lg text-sm hover:bg-teal-600"
+            >
+              Next: Activity Info
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Step 5: Activity Metadata */}
+      {step === "activity" && parsed && (
+        <div className="space-y-6">
           <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
             <h2 className="text-lg font-semibold mb-4">Activity Information</h2>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -139,6 +346,7 @@ export default function DataImport() {
                   <option value="Live Event">Live Event</option>
                   <option value="Self-Study">Self-Study</option>
                   <option value="Certificate Program">Certificate Program</option>
+                  <option value="On-Demand">On-Demand</option>
                   <option value="Other">Other</option>
                 </select>
               </div>
@@ -183,44 +391,14 @@ export default function DataImport() {
 
           <div className="flex gap-3">
             <button
-              onClick={() => setStep("upload")}
-              className="px-4 py-2 border rounded-lg text-sm hover:bg-navy-50"
-            >
-              Back
-            </button>
-            <button
-              onClick={() => setStep("mapping")}
-              disabled={!activity.activity_id || !activity.activity_name}
-              className="px-4 py-2 bg-teal-500 text-white rounded-lg text-sm hover:bg-teal-600 disabled:opacity-50"
-            >
-              Next: Map Columns
-            </button>
-          </div>
-        </div>
-      )}
-
-      {/* Step 3: Column Mapping */}
-      {step === "mapping" && parsed && (
-        <div className="space-y-6">
-          <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
-            <ColumnMappingEditor
-              headers={parsed.headers}
-              mapping={mapping}
-              onMappingChange={setMapping}
-              onReset={() => setMapping(autoMapping)}
-            />
-          </div>
-
-          <div className="flex gap-3">
-            <button
-              onClick={() => setStep("activity")}
+              onClick={() => setStep("preview")}
               className="px-4 py-2 border rounded-lg text-sm hover:bg-navy-50"
             >
               Back
             </button>
             <button
               onClick={handleImport}
-              disabled={!validateMapping(mapping).isValid || importing}
+              disabled={!activity.activity_id || !activity.activity_name || importing}
               className="px-4 py-2 bg-teal-600 text-white rounded-lg text-sm hover:bg-teal-700 disabled:opacity-50"
             >
               {importing ? "Importing..." : "Import Data"}
@@ -229,24 +407,60 @@ export default function DataImport() {
         </div>
       )}
 
-      {/* Step 4: Results */}
-      {step === "import" && result && (
+      {/* Step 6: Results */}
+      {step === "results" && result && (
         <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
           <h2 className="text-lg font-semibold mb-4">Import Results</h2>
-          <div className="grid grid-cols-3 gap-4 mb-4">
-            <div className="text-center p-4 bg-teal-50 rounded-lg">
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
+            <div className="text-center p-3 bg-teal-50 rounded-lg">
               <div className="text-2xl font-bold text-teal-700">{result.learnersCreated}</div>
-              <div className="text-sm text-teal-600">Learners Created</div>
+              <div className="text-xs text-teal-600">Learners Created</div>
             </div>
-            <div className="text-center p-4 bg-teal-50 rounded-lg">
+            <div className="text-center p-3 bg-teal-50 rounded-lg">
               <div className="text-2xl font-bold text-teal-700">{result.learnersUpdated}</div>
-              <div className="text-sm text-teal-600">Learners Updated</div>
+              <div className="text-xs text-teal-600">Learners Updated</div>
             </div>
-            <div className="text-center p-4 bg-accent-50 rounded-lg">
+            <div className="text-center p-3 bg-accent-50 rounded-lg">
               <div className="text-2xl font-bold text-accent-700">{result.participationsCreated}</div>
-              <div className="text-sm text-accent-600">Participations</div>
+              <div className="text-xs text-accent-600">Participations</div>
+            </div>
+            <div className="text-center p-3 bg-navy-50 rounded-lg">
+              <div className="text-2xl font-bold text-navy-700">{result.questionsCreated}</div>
+              <div className="text-xs text-navy-500">Questions</div>
             </div>
           </div>
+
+          <div className="grid grid-cols-2 md:grid-cols-3 gap-3 mb-4">
+            <div className="text-center p-3 bg-gray-50 rounded-lg">
+              <div className="text-xl font-bold text-navy-700">{result.responsesCreated}</div>
+              <div className="text-xs text-navy-500">Question Responses</div>
+            </div>
+            <div className="text-center p-3 bg-gray-50 rounded-lg">
+              <div className="text-xl font-bold text-navy-700">{result.evaluationResponsesCreated}</div>
+              <div className="text-xs text-navy-500">Evaluation Responses</div>
+            </div>
+            {result.emailAliasesFlagged > 0 && (
+              <div className="text-center p-3 bg-amber-50 rounded-lg">
+                <div className="text-xl font-bold text-amber-700">{result.emailAliasesFlagged}</div>
+                <div className="text-xs text-amber-600">Email Aliases Flagged</div>
+              </div>
+            )}
+          </div>
+
+          {result.warnings.length > 0 && (
+            <div className="mt-4 p-3 bg-amber-50 border border-amber-200 rounded-lg">
+              <p className="font-medium text-amber-700 mb-2">Warnings ({result.warnings.length}):</p>
+              <ul className="text-sm text-amber-600 space-y-1">
+                {result.warnings.slice(0, 10).map((w, i) => (
+                  <li key={i}>{w}</li>
+                ))}
+                {result.warnings.length > 10 && (
+                  <li>...and {result.warnings.length - 10} more</li>
+                )}
+              </ul>
+            </div>
+          )}
+
           {result.errors.length > 0 && (
             <div className="mt-4 p-3 bg-red-50 border border-red-200 rounded-lg">
               <p className="font-medium text-red-700 mb-2">Errors ({result.errors.length}):</p>
@@ -260,12 +474,9 @@ export default function DataImport() {
               </ul>
             </div>
           )}
+
           <button
-            onClick={() => {
-              setStep("upload");
-              setParsed(null);
-              setResult(null);
-            }}
+            onClick={resetWizard}
             className="mt-4 px-4 py-2 bg-teal-500 text-white rounded-lg text-sm hover:bg-teal-600"
           >
             Import Another File
@@ -274,4 +485,15 @@ export default function DataImport() {
       )}
     </div>
   );
+}
+
+function formatSource(source: string): string {
+  const labels: Record<string, string> = {
+    array: "Array",
+    globalmeet: "GlobalMeet",
+    pigeonhole: "Pigeonhole",
+    snowflake_eval: "Snowflake Evaluation",
+    snowflake_ondemand: "Snowflake On-Demand",
+  };
+  return labels[source] || source;
 }

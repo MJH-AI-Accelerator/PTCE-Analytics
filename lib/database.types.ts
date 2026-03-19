@@ -23,6 +23,9 @@ export interface Activity {
   credit_hours: number | null;
   target_audience: string | null;
   description: string | null;
+  data_source: string | null;
+  source_file_name: string | null;
+  import_date: string | null;
   created_at: string;
 }
 
@@ -38,7 +41,7 @@ export interface Question {
   activity_id: string;
   question_number: number | null;
   question_text: string;
-  question_type: "assessment" | "confidence" | "evaluation" | "pulse";
+  question_type: "assessment" | "confidence" | "evaluation" | "pulse" | "ars";
   question_category: string | null;
   correct_answer: string | null;
   objective_id: number | null;
@@ -80,9 +83,10 @@ export interface EvaluationResponse {
   participation_id: number;
   question_id: number | null;
   eval_question_text: string;
-  eval_category: "practice_profile" | "intended_change" | "barrier" | "demographic" | "custom" | null;
+  eval_category: "practice_profile" | "intended_change" | "barrier" | "demographic" | "custom" | "faculty_rating" | "overall_rating" | "learning_objective_rating" | null;
   response_text: string | null;
   response_numeric: number | null;
+  faculty_name: string | null;
 }
 
 export interface EvaluationTemplate {
@@ -120,6 +124,44 @@ export interface RoleData {
   role_percentage: number | null;
 }
 
+export interface EmailAlias {
+  id: number;
+  primary_email: string;
+  alias_email: string;
+  confidence: "medium" | "high";
+  reviewed: boolean;
+  created_at: string;
+}
+
+export interface PresenterQuestion {
+  id: number;
+  activity_id: string;
+  question_number: number;
+  question_text: string;
+}
+
+export interface PresenterResponse {
+  id: number;
+  presenter_question_id: number;
+  participation_id: number;
+  response_text: string | null;
+}
+
+export interface ImportBatch {
+  id: number;
+  activity_id: string;
+  data_source: string;
+  source_file_name: string;
+  imported_at: string;
+  learners_created: number;
+  learners_updated: number;
+  participations_created: number;
+  questions_created: number;
+  responses_created: number;
+  warnings: unknown[];
+  errors: unknown[];
+}
+
 export type Database = {
   public: {
     Tables: {
@@ -135,6 +177,10 @@ export type Database = {
       employer_aliases: { Row: EmployerAlias; Insert: Omit<EmployerAlias, "id" | "created_at">; Update: Partial<Omit<EmployerAlias, "id">> };
       normalization_log: { Row: NormalizationLog; Insert: Omit<NormalizationLog, "id" | "created_at">; Update: Partial<Omit<NormalizationLog, "id">> };
       role_data: { Row: RoleData; Insert: Omit<RoleData, "id">; Update: Partial<Omit<RoleData, "id">> };
+      email_aliases: { Row: EmailAlias; Insert: Omit<EmailAlias, "id" | "created_at">; Update: Partial<Omit<EmailAlias, "id">> };
+      presenter_questions: { Row: PresenterQuestion; Insert: Omit<PresenterQuestion, "id">; Update: Partial<Omit<PresenterQuestion, "id">> };
+      presenter_responses: { Row: PresenterResponse; Insert: Omit<PresenterResponse, "id">; Update: Partial<Omit<PresenterResponse, "id">> };
+      import_batches: { Row: ImportBatch; Insert: Omit<ImportBatch, "id" | "imported_at">; Update: Partial<Omit<ImportBatch, "id">> };
     };
   };
 };
