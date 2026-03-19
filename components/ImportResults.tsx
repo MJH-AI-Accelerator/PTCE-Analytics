@@ -113,6 +113,7 @@ export default function ImportResults({ summary, errors, warnings, onReset }: Im
                 <tr className="border-b border-gray-200">
                   <th className="text-left py-2 px-2 text-navy-500 font-medium">Q#</th>
                   <th className="text-left py-2 px-2 text-navy-500 font-medium">Question</th>
+                  <th className="text-left py-2 px-2 text-navy-500 font-medium">Correct Answer</th>
                   <th className="text-left py-2 px-2 text-navy-500 font-medium">Category</th>
                   <th className="text-right py-2 px-2 text-navy-500 font-medium">Pre</th>
                   <th className="text-right py-2 px-2 text-navy-500 font-medium">Post</th>
@@ -125,6 +126,9 @@ export default function ImportResults({ summary, errors, warnings, onReset }: Im
                     <td className="py-2 px-2 font-medium text-navy-600">Q{q.questionNumber}</td>
                     <td className="py-2 px-2 text-navy-600 max-w-xs truncate" title={q.questionText}>
                       {q.questionText.length > 80 ? q.questionText.slice(0, 80) + "..." : q.questionText}
+                    </td>
+                    <td className="py-2 px-2 text-navy-500 text-xs max-w-[150px] truncate" title={q.correctAnswer ?? ""}>
+                      {q.correctAnswer ?? "—"}
                     </td>
                     <td className="py-2 px-2 text-navy-500 text-xs">{q.questionCategory ?? "—"}</td>
                     <td className="py-2 px-2 text-right text-navy-600">{formatPct(q.preCorrectPct)}</td>

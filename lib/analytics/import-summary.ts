@@ -6,6 +6,7 @@ export interface QuestionPerformance {
   questionNumber: number;
   questionText: string;
   questionCategory: string | null;
+  correctAnswer: string | null;
   preCorrectPct: number | null;
   postCorrectPct: number | null;
   changePct: number | null;
@@ -99,15 +100,13 @@ export function computeImportSummary(
   const questions = parsed.questions;
 
   // ── Primary metrics ──
-  // Learner count: those with assessment responses (Array source)
-  const learnersWithAssessment = learners.filter(
-    (l) => l.responses.length > 0 || l.preScore != null || l.postScore != null
-  );
+  // Learner count: all unique emails from assessment source (Array report)
+  // Includes learners with demographics-only rows (no responses) since they were in the source file
   const learnersWithEval = learners.filter(
     (l) => l.evaluationResponses.length > 0
   );
 
-  const learnerCount = learnersWithAssessment.length;
+  const learnerCount = learners.length;
   const completerCount = learnersWithEval.length;
   const matchedCount = mergeResult?.matchedCount ?? Math.min(learnerCount, completerCount);
   const questionsCreated = dbResult.questionsCreated || questions.filter((q) => q.questionType === "assessment").length;
@@ -213,6 +212,7 @@ function computeQuestionPerformance(
       questionNumber: q.questionNumber,
       questionText: q.questionText,
       questionCategory: q.questionCategory ?? null,
+      correctAnswer: q.correctAnswer ?? null,
       preCorrectPct: prePct,
       postCorrectPct: postPct,
       changePct,
@@ -345,17 +345,19 @@ function computePracticeSettings(
   learners: ParsedActivityData["learners"]
 ): PracticeSettingBreakdown[] {
   const counts = new Map<string, number>();
+  let knownTotal = 0;
   for (const l of learners) {
-    const setting = l.practiceSetting ?? "Unknown";
+    const setting = l.practiceSetting;
+    if (!setting) continue; // skip unknown/null
     counts.set(setting, (counts.get(setting) ?? 0) + 1);
+    knownTotal++;
   }
 
-  const total = learners.length;
   return Array.from(counts.entries())
     .map(([setting, count]) => ({
       setting,
       count,
-      pct: pct(count, total),
+      pct: pct(count, knownTotal),
     }))
     .sort((a, b) => b.count - a.count);
 }
@@ -374,6 +376,8 @@ function computeTopEmployers(
     .sort((a, b) => b.count - a.count)
     .slice(0, 10);
 }
+
+const NO_BARRIER_PATTERN = /do not anticipate|no barriers|none/i;
 
 function computeEvalFrequency(
   learners: ParsedActivityData["learners"],
@@ -394,8 +398,18 @@ function computeEvalFrequency(
     }
   }
 
-  return Array.from(counts.entries())
-    .map(([text, count]) => ({ text, count }))
-    .sort((a, b) => b.count - a.count)
-    .slice(0, 10);
+  const items = Array.from(counts.entries())
+    .map(([text, count]) => ({ text, count }));
+
+  // For barriers: sort "I do not anticipate any barriers" to the end
+  if (evalCategory === "barrier") {
+    const noBarrier = items.filter((i) => NO_BARRIER_PATTERN.test(i.text));
+    const realBarriers = items
+      .filter((i) => !NO_BARRIER_PATTERN.test(i.text))
+      .sort((a, b) => b.count - a.count)
+      .slice(0, 10);
+    return [...realBarriers, ...noBarrier];
+  }
+
+  return items.sort((a, b) => b.count - a.count).slice(0, 10);
 }
