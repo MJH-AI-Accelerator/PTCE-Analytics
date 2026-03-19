@@ -197,25 +197,35 @@ export default function DataImport() {
     <div className="max-w-5xl">
       <h1 className="text-2xl font-bold mb-6">Data Import</h1>
 
-      {/* Step indicators */}
+      {/* Step indicators — clickable for completed steps */}
       <div className="flex gap-1.5 mb-8 overflow-x-auto">
-        {STEPS.map((s, i) => (
-          <div
-            key={s}
-            className={`flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-medium whitespace-nowrap ${
-              step === s
-                ? "bg-teal-500 text-white"
-                : STEPS.indexOf(step) > i
-                ? "bg-teal-100 text-teal-700"
-                : "bg-navy-50 text-navy-300"
-            }`}
-          >
-            <span className="w-5 h-5 rounded-full bg-white/20 flex items-center justify-center text-[10px]">
-              {i + 1}
-            </span>
-            {STEP_LABELS[s]}
-          </div>
-        ))}
+        {STEPS.map((s, i) => {
+          const currentIdx = STEPS.indexOf(step);
+          const isActive = step === s;
+          const isCompleted = currentIdx > i;
+          const canNavigate = isCompleted && step !== "results";
+
+          return (
+            <button
+              key={s}
+              type="button"
+              disabled={!canNavigate && !isActive}
+              onClick={() => canNavigate && setStep(s)}
+              className={`flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-medium whitespace-nowrap transition-colors ${
+                isActive
+                  ? "bg-teal-500 text-white"
+                  : isCompleted
+                  ? "bg-teal-100 text-teal-700 hover:bg-teal-200 cursor-pointer"
+                  : "bg-navy-50 text-navy-300 cursor-default"
+              }`}
+            >
+              <span className="w-5 h-5 rounded-full bg-white/20 flex items-center justify-center text-[10px]">
+                {i + 1}
+              </span>
+              {STEP_LABELS[s]}
+            </button>
+          );
+        })}
       </div>
 
       {/* Step 1: Source Selection */}
