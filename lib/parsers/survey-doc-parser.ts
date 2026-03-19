@@ -5,7 +5,39 @@ import type { AnswerKeyEntry, QuestionType } from "./types";
  * Standard question categories — assigned based on what competency the question assesses.
  * Focus on what the question is TESTING, not what medical topic it mentions.
  */
+// Order matters — earlier categories take priority when multiple patterns match.
+// Patient Recommendations is checked before Clinical Updates because patient-case
+// framing ("a 63-year-old woman presents to clinic to discuss therapy options")
+// signals a recommendation competency even when the question also references trial data.
 const CATEGORY_RULES: { category: string; patterns: RegExp[] }[] = [
+  {
+    category: "Patient Recommendations",
+    patterns: [
+      // Patient case framing — highest priority signal
+      /\b(?:is\s+a\s+)?\d{1,3}[\s-]*year[\s-]*old\b/i,
+      /(?:patient|client)\s*(?:presents|who\s*presents)/i,
+      /presents?\s*to\s*(?:clinic|office|pharmacy)/i,
+      /to\s*discuss\s*(?:therapy|treatment|medication|option)/i,
+      /recommend|recommendation/i,
+      /treatment\s*(?:selection|option|decision)/i,
+      /counsel|monitoring/i,
+      /(?:dosing|dose)\s*(?:adjustment|decision|change)/i,
+      /therapy\s*(?:selection|management|initiation|option)/i,
+      /what\s*(?:would|should)\s*you\s*recommend/i,
+    ],
+  },
+  {
+    category: "Role of the Pharmacist",
+    patterns: [
+      /(?:pharmacist|health\s*care\s*team)\s*should/i,
+      /before\s*initiating\s*therapy/i,
+      /confirm\s*(?:the\s*)?presence/i,
+      /role\s*(?:of\s*)?(?:the\s*)?pharmacist/i,
+      /pharmacist.s?\s*(?:role|responsibility|action)/i,
+      /what\s*(?:should|would)\s*(?:the|a)\s*pharmacist/i,
+      /clinical\s*(?:decision|action)\s*(?:by|for)\s*(?:the\s*)?(?:pharmacist|team)/i,
+    ],
+  },
   {
     category: "Disease Burden",
     patterns: [
@@ -40,29 +72,6 @@ const CATEGORY_RULES: { category: string; patterns: RegExp[] }[] = [
       /(?:new|recent|emerging)\s*(?:data|evidence|trial|study)/i,
       /guideline\s*(?:change|update|recommendation)/i,
       /abstract|SABCS|ASCO|ESMO/i,
-    ],
-  },
-  {
-    category: "Role of the Pharmacist",
-    patterns: [
-      /(?:pharmacist|health\s*care\s*team)\s*should/i,
-      /before\s*initiating\s*therapy/i,
-      /confirm\s*(?:the\s*)?presence/i,
-      /role\s*(?:of\s*)?(?:the\s*)?pharmacist/i,
-      /pharmacist.s?\s*(?:role|responsibility|action)/i,
-      /what\s*(?:should|would)\s*(?:the|a)\s*pharmacist/i,
-      /clinical\s*(?:decision|action)\s*(?:by|for)\s*(?:the\s*)?(?:pharmacist|team)/i,
-    ],
-  },
-  {
-    category: "Patient Recommendations",
-    patterns: [
-      /recommend|recommendation/i,
-      /treatment\s*(?:selection|option|decision)/i,
-      /counsel|monitoring/i,
-      /(?:dosing|dose)\s*(?:adjustment|decision|change)/i,
-      /therapy\s*(?:selection|management|initiation|option)/i,
-      /what\s*(?:would|should)\s*you\s*recommend/i,
     ],
   },
 ];
