@@ -2,7 +2,9 @@
 
 ## Context
 
-Pharmacy Times Continuing Education (PTCE) is a leading provider of accredited continuing education for pharmacists, pharmacy technicians, and other healthcare professionals. PTCE delivers education through a mix of formats including CE webinars, online self-study courses, live conferences, and other activity types. These activities generate rich learner performance and engagement data — but currently there is no unified system to longitudinally analyze learner outcomes across activities, employers, time periods, and participation levels. This program will consolidate learner data from multiple sources and provide both descriptive and inferential analytics to support educational outcome measurement, outcomes research, and program improvement.
+Pharmacy Times Continuing Education (PTCE) is a leading provider of accredited continuing education for pharmacists, pharmacy technicians, and other healthcare professionals. PTCE delivers education through a mix of formats including CE webinars, online self-study courses, live conferences, and other activity types. These activities generate rich learner performance and engagement data — but currently there is no unified system to longitudinally analyze learner outcomes across activities, employers, time periods, and participation levels. This platform consolidates learner data from multiple sources and provides both descriptive and inferential analytics to support educational outcome measurement, outcomes research, and program improvement.
+
+> **Note:** This platform was originally prototyped in Python/Streamlit with SQLite storage and has been rebuilt as a Next.js 14 web application with Supabase (PostgreSQL) as the data layer. This PRD reflects the current Next.js implementation.
 
 ---
 
@@ -32,7 +34,7 @@ There is no existing tool that links learner records across activities for longi
 
 ### 3.1 Data Sources
 - **Excel/CSV files**: Exported activity data (primary initial source)
-- **API endpoints**: Programmatic access to PTCE/Pharmacy Times systems (future/supplemental)
+- **External connectors** (future): Snowflake, GlobalMeet, Array, Pigeonhole — connector framework exists with status UI
 
 ### 3.2 Core Data Fields
 
@@ -71,7 +73,7 @@ Each activity has its own metadata record, forming a **program catalog** (rolode
 | Accreditation Type | ACPE, CME, CNE, etc. | Categorical |
 | Credit Hours | Number of CE credits awarded | Numeric |
 | Learning Objectives | List of stated learning objectives for the activity | Text (list) |
-| Questions → Objectives Mapping | Which assessment questions map to which learning objectives | Structured |
+| Questions to Objectives Mapping | Which assessment questions map to which learning objectives | Structured |
 | Target Audience | Intended audience (pharmacists, technicians, nurses, etc.) | Categorical (list) |
 | Description | Brief summary of the activity content | Text |
 
@@ -79,7 +81,7 @@ Each activity has its own metadata record, forming a **program catalog** (rolode
 - **FR-ACT-2**: Map assessment questions to learning objectives per activity, enabling objective-level performance analysis
 - **FR-ACT-3**: Allow filtering and browsing activities by therapeutic area, disease state, type, date, sponsor, or audience
 - **FR-ACT-4**: Activity detail view showing metadata, linked learner count, and aggregate performance summary
-- **FR-ACT-5**: Support importing activity metadata from a dedicated config file (YAML/JSON) or from columns in the data file
+- **FR-ACT-5**: Support importing activity metadata from columns in the data file or the activity information form during upload
 - **FR-ACT-6**: **Cross-program question search** — identify and surface assessment questions that are identical (or near-identical) across different activities. This enables:
   - Searching the catalog by question text to find all programs that use a given question
   - Comparing learner performance on the same question across different programs, time periods, and audiences
@@ -131,7 +133,7 @@ Employer names are **manually entered by learners**, resulting in inconsistent, 
 The system must clean and standardize employer names:
 
 - **FR-EMP-1**: Normalize casing, whitespace, and punctuation on all employer inputs
-- **FR-EMP-2**: Fuzzy matching — cluster similar employer strings using string similarity algorithms (e.g., Levenshtein distance, Jaro-Winkler, or TF-IDF + cosine similarity)
+- **FR-EMP-2**: Fuzzy matching — cluster similar employer strings using string similarity algorithms (Levenshtein distance via Fuse.js)
 - **FR-EMP-3**: Maintain an **employer alias table** — a curated mapping of known variations to canonical employer names (e.g., "CVS" → "CVS Health")
 - **FR-EMP-4**: Surface unmatched/ambiguous employer names for manual review and resolution
 - **FR-EMP-5**: Allow analysts to add new aliases and re-run normalization
@@ -139,25 +141,25 @@ The system must clean and standardize employer names:
 
 **Approach**: Use a combination of:
 1. **Rule-based cleaning** (strip whitespace, lowercase, remove punctuation)
-2. **Fuzzy matching** (python-Levenshtein or rapidfuzz library) to group similar names
-3. **Curated alias table** (CSV or database table) that grows over time as new employer names appear
+2. **Fuzzy matching** (Fuse.js with Levenshtein distance) to group similar names
+3. **Curated alias table** (Supabase `employer_aliases` table) that grows over time as new employer names appear
 4. **Manual review queue** for low-confidence matches
 
-### 3.3 Learner Identity Resolution
+### 3.7 Learner Identity Resolution
 - **Primary key**: Email address
 - **Fallback**: Email + name combination for disambiguation
-- **Strategy**: Build a learner identity resolution module that can be refined as data is explored
+- **Strategy**: Identity resolution module in the ingestion pipeline that upserts learner records by email
 
 ---
 
 ## 4. Functional Requirements
 
 ### 4.1 Data Ingestion
-- **FR-1**: Import learner data from Excel (.xlsx) and CSV files
-- **FR-2**: Support configurable column mapping via YAML/JSON config files per activity type (different activities may have different column layouts)
-- **FR-3**: Validate and normalize incoming data (standardize employer names, practice settings, etc.)
-- **FR-4**: API connector interface for future programmatic data sources
-- **FR-5**: Deduplication and learner identity resolution across data files
+- **FR-1**: Import learner data from Excel (.xlsx) and CSV files via drag-and-drop upload UI
+- **FR-2**: Support configurable column mapping with auto-detection and manual override
+- **FR-3**: Validate and normalize incoming data (standardize employer names, confidence scores, assessment scores)
+- **FR-4**: Connector interface for future external data sources (Snowflake, GlobalMeet, Array, Pigeonhole)
+- **FR-5**: Deduplication and learner identity resolution across data files via email-based upsert
 
 ### 4.2 Longitudinal Tracking
 - **FR-6**: Link learner records across multiple activities using email (+ name fallback)
@@ -177,7 +179,7 @@ The system must clean and standardize employer names:
 - **FR-14**: Cohort analysis: learners who started in 2024 vs. 2025
 
 #### Participation Depth Analysis
-- **FR-15**: Segment learners by number of activities completed (1, 2-3, 4+, etc.)
+- **FR-15**: Segment learners by number of activities completed (1, 2-3, 4-5, 6+)
 - **FR-16**: Compare outcomes for single-activity vs. multi-activity participants
 - **FR-17**: Analyze whether additional activities yield diminishing or compounding returns
 
@@ -191,7 +193,7 @@ The system must clean and standardize employer names:
   - Practice setting (e.g., retail, health-system, ambulatory care)
   - Employer (normalized name)
   - Role/responsibility areas (varies by activity — may be single selection, multi-select, or percentage-based)
-  - Percentage thresholds on role data (e.g., "≥25% of role involves managing cancer medications")
+  - Percentage thresholds on role data (e.g., ">=25% of role involves managing cancer medications")
   - Year/date range of participation
   - Number of activities completed
   - Activity type or specific activity
@@ -214,16 +216,16 @@ The system must clean and standardize employer names:
 - **FR-26**: Basic sentiment/theme analysis on comments (keyword extraction, categorization)
 
 ### 4.4 Statistical Testing
-- **FR-27**: Descriptive statistics by default (mean, median, std dev, distributions, counts)
-- **FR-28**: Optional inferential tests: t-tests, ANOVA, chi-square for group comparisons
+- **FR-27**: Descriptive statistics by default (mean, median, std dev, distributions, counts, 95% CI)
+- **FR-28**: Optional inferential tests: paired t-tests with t-statistic, p-value, degrees of freedom, and Cohen's d
 - **FR-29**: Report p-values, confidence intervals, and effect sizes when statistical tests are run
-- **FR-30**: Flag statistically significant findings automatically
+- **FR-30**: Flag statistically significant findings automatically with interpretation text
 
 ### 4.5 Output & Reporting
-- **FR-31**: Interactive dashboard (web-based) with filters for employer, year, activity, practice setting
-- **FR-32**: Export reports to PDF and Excel — supports both raw learner-level data exports and aggregate summary reports
-- **FR-33**: CLI mode for analysts to run specific queries and generate output directly
-- **FR-34**: Visualization: bar charts, line charts (trends), box plots (distributions), heatmaps
+- **FR-31**: Interactive web dashboard with filters for employer, year, activity, practice setting
+- **FR-32**: Export reports to PDF and Excel — supports full data exports and filtered subsets (learners, questions, employers)
+- **FR-33**: Visualization: bar charts, line charts (trends), histograms (distributions) via Recharts
+- **FR-34**: Wide-format Learner Responses view with toggleable column groups and color-coded cells
 
 ---
 
@@ -234,6 +236,8 @@ The system must clean and standardize employer names:
 - **NFR-3**: Modular architecture: ingestion, identity resolution, analytics, and reporting as separate layers
 - **NFR-4**: Extensible: easy to add new metrics, data sources, or output formats
 - **NFR-5**: Data privacy: PII (emails, names) is visible to all users in reports and exports — no anonymization required for internal use
+- **NFR-6**: Responsive design: usable on desktop (1280px+), tablet (768px), and mobile (375px)
+- **NFR-7**: Error boundaries and loading states on all data-fetching pages
 
 ---
 
@@ -241,71 +245,151 @@ The system must clean and standardize employer names:
 
 | Component | Technology |
 |---|---|
-| Language | Python 3.11+ |
-| Data processing | pandas, numpy |
-| Statistics | scipy, statsmodels |
-| Visualization | plotly (interactive), matplotlib (static/PDF) |
-| Dashboard | Streamlit or Dash (lightweight web UI) |
-| PDF export | reportlab or weasyprint |
-| Excel export | openpyxl |
-| Data storage | SQLite (local) for unified learner database |
-| API ingestion | requests / httpx |
-| Fuzzy matching | rapidfuzz (employer name normalization, deduplication) |
-| Text analysis | basic NLP with spaCy or simple keyword/regex approach |
-| CLI | click or typer |
+| Framework | Next.js 14 (App Router), TypeScript |
+| Database | Supabase (PostgreSQL) |
+| Styling | Tailwind CSS |
+| Charts | Recharts |
+| Auth | Supabase Auth (future) |
+| Deployment | Vercel |
+| File parsing | SheetJS (xlsx) |
+| Fuzzy matching | Fuse.js |
+| Statistics | simple-statistics |
+| PDF export | jsPDF + jspdf-autotable |
+| Excel export | SheetJS (xlsx) |
+| Icons | lucide-react |
 
 ---
 
 ## 7. Architecture Overview
 
 ```
-[Data Sources]          [Ingestion Layer]        [Core Database]
-Excel/CSV files  --->   Column Mapper     --->   SQLite DB
-YAML/JSON configs --->  Validator/Normalizer      ├── Learner Profiles
-API endpoints    --->   Identity Resolver         ├── Activity Catalog
-                                                  ├── Participation Records
-                                                  └── Assessment Data
+[Data Sources]          [Ingestion Layer]        [Supabase (PostgreSQL)]
+Excel/CSV files  --->   File Parser (SheetJS) -> learners
+                        Column Mapper             activities
+                        Normalizer                 learning_objectives
+                        Identity Resolver          questions / question_categories
+                                                   participations
+                                                   question_responses
+[External Connectors]                              evaluation_responses
+Snowflake        --->   Connector Interface        evaluation_templates
+GlobalMeet       --->   (future)                   employer_aliases
+Array            --->                              normalization_log
+Pigeonhole       --->                              role_data
 
-[Analytics Engine]      [Output Layer]
-Employer Analysis  ---> Interactive Dashboard (Streamlit/Dash)
-Temporal Analysis  ---> PDF/Excel Reports (raw + aggregate)
-Participation      ---> CLI Output
-Statistical Tests       Activity Catalog Browser
-Qualitative Analysis
+[Query Layer]           [Next.js App Router]
+lib/queries/     --->   14 Pages (Server Components)
+lib/analytics/          Client Components (Recharts, filters, panels)
+                        Server Actions (data ingestion)
+
+[Export Layer]
+lib/export/      --->   Excel (SheetJS) + PDF (jsPDF)
 ```
 
----
-
-## 8. Phased Delivery
-
-### Phase 1: Foundation
-- Data ingestion from Excel/CSV with YAML/JSON column mapping configs
-- Activity catalog: metadata storage, browsing, and question-to-objective mapping
-- Learner identity resolution (email-based)
-- SQLite storage with unified learner profiles
-- Basic CLI for querying
-
-### Phase 2: Core Analytics
-- Employer performance analysis (FR-9 through FR-11)
-- Temporal comparison: year-over-year (FR-12 through FR-14)
-- Participation depth analysis (FR-15 through FR-17)
-- Descriptive statistics and visualizations
-
-### Phase 3: Advanced Analytics & Reporting
-- Statistical significance testing (FR-22 through FR-25)
-- Practice setting and role breakdowns (FR-18, FR-19)
-- PDF and Excel report generation
-- Interactive dashboard (Streamlit/Dash)
-
-### Phase 4: Qualitative & Scale
-- Pulse question aggregation and analysis
-- Comment sentiment/theme analysis
-- API data source connectors
-- Performance optimization for 100+ activities
+### Database Schema (12 tables)
+- `learners` — email (unique), name, employer_raw/normalized, practice_setting, role
+- `activities` — activity_id (PK), name, type, date, therapeutic_area, disease_state, sponsor, accreditation_type, credit_hours
+- `learning_objectives` — per-activity objectives
+- `questions` — assessment/confidence/evaluation/pulse questions per activity
+- `question_categories` — standard categories (Pathophysiology, Clinical Updates, Patient Recommendations, Disease Burden, Role of the Pharmacist)
+- `participations` — one row per learner per activity with aggregate scores
+- `question_responses` — individual pre/post answers per question
+- `evaluation_responses` — post-activity survey responses
+- `evaluation_templates` — standard evaluation question templates
+- `employer_aliases` — raw_name to canonical_name fuzzy mapping
+- `normalization_log` — tracks field normalization history
+- `role_data` — role percentages per participation
 
 ---
 
-## 9. Key Metrics for Success
+## 8. Pages (14 routes)
+
+| # | Route | Purpose | Status |
+|---|---|---|---|
+| 1 | `/` | Dashboard with summary metrics and charts | Metrics complete, charts partial |
+| 2 | `/data-import` | File upload, column mapping, ingestion pipeline | Complete |
+| 3 | `/program-catalog` | Activity catalog, question search, identical questions | Complete |
+| 4 | `/question-analysis` | Per-question stats, category analysis, confidence | Complete |
+| 5 | `/evaluation-analysis` | Practice profile, intended changes, barriers | Complete |
+| 6 | `/learner-responses` | Wide-format unified view with column toggles | Complete |
+| 7 | `/employer-analysis` | Performance ranking, bar chart | Complete |
+| 8 | `/temporal-analysis` | Year-over-year, monthly trends | Complete |
+| 9 | `/participation-depth` | Segment by activity count, practice setting breakdown | Complete |
+| 10 | `/learner-explorer` | Search learners, profile panel | Complete |
+| 11 | `/employer-management` | Alias table, unmatched names, normalization log | Complete |
+| 12 | `/statistical-tests` | Descriptive stats, paired t-test | Complete |
+| 13 | `/export` | Excel and PDF export with type selection | Complete |
+| 14 | `/data-sources` | Connector status UI | Complete (UI only) |
+
+---
+
+## 9. Implementation Status
+
+### Completed
+- **Project foundation**: Next.js 14 shell, Tailwind CSS, sidebar navigation, layout
+- **Database**: Full Supabase PostgreSQL migration (12 tables), TypeScript types, client utilities
+- **Data ingestion**: File upload (drag-and-drop), column auto-detection and mapping, full server action pipeline with identity resolution, score/confidence normalization
+- **Employer management**: Fuzzy matching (Fuse.js/Levenshtein), alias table, unmatched names queue, normalization log
+- **Program catalog**: Searchable activity table, detail panel, cross-program question search, identical question detection
+- **Learner views**: Explorer with search/pagination/profile panel, wide-format unified responses with column group toggles
+- **Analytics pages**: Question analysis, evaluation analysis, employer analysis, temporal analysis, participation depth
+- **Statistical tests**: Descriptive statistics, paired t-test with interpretation
+- **Export**: Excel (multi-sheet) and PDF export
+- **Data sources**: Connector status UI for 4 external sources
+- **UI polish**: Loading skeletons, error boundaries, toast notifications, responsive sidebar
+
+### Remaining Work
+
+| Task | Description | Priority |
+|---|---|---|
+| Global sidebar filters | Shared filter state (activity, date range, employer, practice setting) that propagates across all analytics pages | High |
+| Dashboard charts | Full chart implementation (score distribution, confidence change, year-over-year, top employers) | High |
+| Supabase Auth | Authentication and role-based access control | Medium |
+| Server-side pagination | Pagination at the query layer for large datasets | Medium |
+| Connector implementations | Actual Snowflake, GlobalMeet, Array, Pigeonhole data fetching (framework exists) | Medium |
+| ANOVA | Group-by ANOVA analysis with box plots on Statistical Tests page | Medium |
+| Qualitative analysis | Pulse question aggregation, comment sentiment/theme analysis | Low |
+| Advanced compound filters | AND/OR filter builder with preview counts | Low |
+| Test coverage | Unit and integration tests across components and pipelines | Low |
+| Performance optimization | Caching, virtual tables for large datasets, optimized re-renders | Low |
+
+---
+
+## 10. Phased Delivery
+
+### Phase 1: Foundation (Complete)
+- Next.js 14 project with TypeScript, Tailwind CSS, App Router
+- Supabase PostgreSQL schema (12 tables) with migration and seed data
+- Dashboard with summary metric cards and empty state handling
+- Sidebar navigation with all 14 routes
+
+### Phase 2: Data Ingestion (Complete)
+- File upload with drag-and-drop and SheetJS parsing
+- Column auto-detection and visual mapping editor
+- Server action ingestion pipeline with identity resolution and normalization
+- Employer fuzzy matching, alias table, and management UI
+
+### Phase 3: Core Views (Complete)
+- Program catalog with activity browser, detail panel, and question search
+- Learner explorer with search, pagination, and profile view
+- Learner responses wide-format unified view with column group toggles
+
+### Phase 4: Analytics Dashboards (Mostly Complete)
+- Question analysis and evaluation analysis pages
+- Employer analysis with performance ranking and bar charts
+- Temporal analysis with year-over-year and monthly trends
+- Participation depth with segmentation and practice setting breakdown
+- Statistical tests with descriptive stats and paired t-test
+- **Remaining**: Global sidebar filter state, dashboard charts, ANOVA
+
+### Phase 5: Advanced Features (Partially Complete)
+- Excel and PDF export (complete)
+- Data sources connector status UI (complete)
+- Responsive polish, loading states, error boundaries (complete)
+- **Remaining**: Auth, server-side pagination, connector implementations, qualitative analysis, advanced filters, test coverage
+
+---
+
+## 11. Key Metrics for Success
 
 - Ability to answer the three core questions (employer performance, year-over-year, single vs. multi-activity)
 - Time to generate a report: < 30 seconds for standard analyses
@@ -314,10 +398,12 @@ Qualitative Analysis
 
 ---
 
-## 10. Open Questions
+## 12. Open Questions
 
-1. **Learner identity**: Will email alone be sufficient, or will we need name-based matching? (To be determined after initial data exploration)
-2. **Employer normalization**: How many distinct employer names exist, and how messy is the naming? (May need a mapping/alias table)
-3. **Dashboard hosting**: Will the dashboard run locally only, or does it need to be deployed to a server for team access?
-4. **Data refresh cadence**: How often will new activity data be ingested? (Ad-hoc vs. scheduled)
-5. **Multi-activity scoring across topics**: When analyzing participation depth (single vs. multi-activity), how should we handle learners who completed activities across different therapeutic areas vs. multiple activities within the same area? (To be determined during build-out)
+1. ~~**Learner identity**: Will email alone be sufficient?~~ **Resolved**: Email is the primary key with name as fallback, implemented in identity resolution module.
+2. ~~**Employer normalization**: How many distinct employer names exist?~~ **Resolved**: Fuse.js fuzzy matching with curated alias table, manual review queue for ambiguous names.
+3. **Dashboard hosting**: Vercel deployment is planned — configuration and environment variables for production Supabase instance TBD.
+4. **Data refresh cadence**: How often will new activity data be ingested? (Ad-hoc upload is supported; scheduled refresh via connectors is future work)
+5. **Multi-activity scoring across topics**: When analyzing participation depth, how should we handle learners who completed activities across different therapeutic areas vs. within the same area?
+6. **Authentication scope**: What roles and permissions are needed? (Supabase Auth integration is planned but not yet implemented)
+7. **Connector credentials**: How will credentials for Snowflake, GlobalMeet, Array, and Pigeonhole be managed in production?

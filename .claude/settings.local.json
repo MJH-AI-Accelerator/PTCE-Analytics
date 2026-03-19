@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(grep -l \"Coming soon\" /c/Users/fagustin/Documents/GitHub/ptce-analytics/app/**/page.tsx 2>/dev/null | head -20)",
+      "Bash(wc -l /c/Users/fagustin/Documents/GitHub/ptce-analytics/lib/analytics/*.ts 2>/dev/null | tail -122)",
+      "Bash(grep -l \"FilterPanel\" /c/Users/fagustin/Documents/GitHub/ptce-analytics/app/**/page.tsx 2>/dev/null2)"
+    ]
+  }
+}
