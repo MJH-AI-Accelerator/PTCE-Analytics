@@ -195,28 +195,28 @@ export default function ImportResults({ summary, errors, warnings, onReset }: Im
                     {changePrefix(c.changePct)}{c.changePct}%
                   </div>
                 </div>
-                <div className="space-y-1">
+                <div className="space-y-2">
                   {/* Pre bar — light */}
                   <div className="flex items-center gap-2">
-                    <span className="text-[10px] text-navy-400 w-8">Pre</span>
-                    <div className="flex-1 bg-gray-100 rounded-full h-5 overflow-hidden">
+                    <span className="text-xs text-navy-400 w-9 shrink-0">Pre</span>
+                    <div className="flex-1 bg-gray-100 rounded h-6 overflow-hidden">
                       <div
-                        className="h-full bg-teal-200 rounded-full flex items-center justify-end pr-2"
-                        style={{ width: `${Math.max(Math.min(c.preCorrectPct, 100), 8)}%` }}
+                        className="h-full bg-teal-200 rounded flex items-center justify-end px-2"
+                        style={{ width: `${Math.max(Math.min(c.preCorrectPct, 100), 10)}%` }}
                       >
-                        <span className="text-[10px] text-teal-700 font-medium">{c.preCorrectPct}%</span>
+                        <span className="text-xs text-teal-800 font-semibold">{c.preCorrectPct}%</span>
                       </div>
                     </div>
                   </div>
                   {/* Post bar — dark */}
                   <div className="flex items-center gap-2">
-                    <span className="text-[10px] text-navy-400 w-8">Post</span>
-                    <div className="flex-1 bg-gray-100 rounded-full h-5 overflow-hidden">
+                    <span className="text-xs text-navy-400 w-9 shrink-0">Post</span>
+                    <div className="flex-1 bg-gray-100 rounded h-6 overflow-hidden">
                       <div
-                        className="h-full bg-teal-600 rounded-full flex items-center justify-end pr-2"
-                        style={{ width: `${Math.max(Math.min(c.postCorrectPct, 100), 8)}%` }}
+                        className="h-full bg-teal-600 rounded flex items-center justify-end px-2"
+                        style={{ width: `${Math.max(Math.min(c.postCorrectPct, 100), 10)}%` }}
                       >
-                        <span className="text-[10px] text-white font-medium">{c.postCorrectPct}%</span>
+                        <span className="text-xs text-white font-semibold">{c.postCorrectPct}%</span>
                       </div>
                     </div>
                   </div>
