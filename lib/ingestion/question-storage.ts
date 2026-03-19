@@ -56,6 +56,25 @@ export async function upsertQuestions(
 }
 
 /**
+ * Fetch existing question ID map for an activity (for batch mode).
+ */
+export async function getQuestionIdMap(
+  supabase: SupabaseClient,
+  activityId: string
+): Promise<Map<number, number>> {
+  const questionIdMap = new Map<number, number>();
+  const { data } = await supabase
+    .from("questions")
+    .select("id, question_number")
+    .eq("activity_id", activityId);
+
+  for (const q of data ?? []) {
+    questionIdMap.set(q.question_number, q.id);
+  }
+  return questionIdMap;
+}
+
+/**
  * Insert question responses for a participation.
  * Returns count of responses inserted.
  */

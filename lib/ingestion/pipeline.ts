@@ -1,7 +1,7 @@
 import { SupabaseClient } from "@supabase/supabase-js";
 import { resolveOrCreateLearner } from "./identity-resolver";
 import { normalizeConfidence, normalizeScore, normalizeEmployer } from "./normalizer";
-import { upsertQuestions, insertQuestionResponses } from "./question-storage";
+import { upsertQuestions, getQuestionIdMap, insertQuestionResponses } from "./question-storage";
 import { insertEvaluationResponses } from "./evaluation-storage";
 import { resolveEmailAlias, findPotentialEmailMatches, flagEmailMatch } from "./email-alias-resolver";
 import type { ParsedActivityData, DataSource } from "@/lib/parsers/types";
@@ -144,10 +144,18 @@ export async function ingestData(
  * New CIR-based storage pipeline.
  * Consumes ParsedActivityData from any source parser and stores everything.
  */
+export interface StorePipelineOptions {
+  /** Skip activity upsert (for batch mode after first chunk) */
+  skipActivityUpsert?: boolean;
+  /** Skip question upsert (for batch mode after first chunk) */
+  skipQuestionUpsert?: boolean;
+}
+
 export async function storeParsedActivityData(
   supabase: SupabaseClient,
   parsed: ParsedActivityData,
-  activity: ActivityMetadata
+  activity: ActivityMetadata,
+  options?: StorePipelineOptions
 ): Promise<IngestResult> {
   const result: IngestResult = {
     learnersCreated: 0,
@@ -163,29 +171,37 @@ export async function storeParsedActivityData(
 
   try {
     // 1. Upsert activity — try with new columns first, fall back to base columns
-    const activityBase = {
-      activity_id: activity.activity_id,
-      activity_name: activity.activity_name,
-      activity_type: activity.activity_type ?? null,
-      activity_date: activity.activity_date ?? null,
-      therapeutic_area: activity.therapeutic_area ?? null,
-      disease_state: activity.disease_state ?? null,
-      sponsor: activity.sponsor ?? null,
-    };
-    const { error: actError } = await supabase.from("activities").upsert({
-      ...activityBase,
-      data_source: parsed.source,
-      source_file_name: parsed.sourceFileName,
-      import_date: new Date().toISOString(),
-    });
-    if (actError) {
-      // New columns may not exist yet — retry without them
-      await supabase.from("activities").upsert(activityBase);
+    if (!options?.skipActivityUpsert) {
+      const activityBase = {
+        activity_id: activity.activity_id,
+        activity_name: activity.activity_name,
+        activity_type: activity.activity_type ?? null,
+        activity_date: activity.activity_date ?? null,
+        therapeutic_area: activity.therapeutic_area ?? null,
+        disease_state: activity.disease_state ?? null,
+        sponsor: activity.sponsor ?? null,
+      };
+      const { error: actError } = await supabase.from("activities").upsert({
+        ...activityBase,
+        data_source: parsed.source,
+        source_file_name: parsed.sourceFileName,
+        import_date: new Date().toISOString(),
+      });
+      if (actError) {
+        // New columns may not exist yet — retry without them
+        await supabase.from("activities").upsert(activityBase);
+      }
     }
 
     // 2. Upsert questions and get ID map
-    const questionIdMap = await upsertQuestions(supabase, activity.activity_id, parsed.questions);
-    result.questionsCreated = parsed.questions.length;
+    let questionIdMap: Map<number, number>;
+    if (!options?.skipQuestionUpsert) {
+      questionIdMap = await upsertQuestions(supabase, activity.activity_id, parsed.questions);
+      result.questionsCreated = parsed.questions.length;
+    } else {
+      // Re-fetch existing question IDs for this activity (batch mode)
+      questionIdMap = await getQuestionIdMap(supabase, activity.activity_id);
+    }
 
     // 3. Track existing learners
     const seenEmails = new Set<string>();
@@ -321,21 +337,24 @@ export async function storeParsedActivityData(
     }
 
     // 5. Create import batch audit record (graceful if table doesn't exist)
-    try {
-      await supabase.from("import_batches").insert({
-        activity_id: activity.activity_id,
-        data_source: parsed.source,
-        source_file_name: parsed.sourceFileName,
-        learners_created: result.learnersCreated,
-        learners_updated: result.learnersUpdated,
-        participations_created: result.participationsCreated,
-        questions_created: result.questionsCreated,
-        responses_created: result.responsesCreated,
-        warnings: result.warnings,
-        errors: result.errors,
-      });
-    } catch {
-      // import_batches table may not exist yet
+    // Skip for batch-mode chunks (the client aggregates and could write its own)
+    if (!options?.skipActivityUpsert) {
+      try {
+        await supabase.from("import_batches").insert({
+          activity_id: activity.activity_id,
+          data_source: parsed.source,
+          source_file_name: parsed.sourceFileName,
+          learners_created: result.learnersCreated,
+          learners_updated: result.learnersUpdated,
+          participations_created: result.participationsCreated,
+          questions_created: result.questionsCreated,
+          responses_created: result.responsesCreated,
+          warnings: result.warnings,
+          errors: result.errors,
+        });
+      } catch {
+        // import_batches table may not exist yet
+      }
     }
   } catch (err) {
     result.errors.push(`Pipeline error: ${err instanceof Error ? err.message : "Unknown error"}`);

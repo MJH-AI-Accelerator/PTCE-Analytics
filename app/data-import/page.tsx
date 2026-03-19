@@ -11,7 +11,9 @@ import { parsePigeonholeFiles } from "@/lib/parsers/pigeonhole-parser";
 import { parseSnowflakeEvalFile } from "@/lib/parsers/snowflake-eval-parser";
 import { parseSnowflakeOnDemandFile } from "@/lib/parsers/snowflake-ondemand-parser";
 import { mergeSources } from "@/lib/parsers/merge-sources";
-import { importParsedData } from "./actions";
+import { importParsedData, importLearnerBatch } from "./actions";
+import ImportResults from "@/components/ImportResults";
+import { computeImportSummary } from "@/lib/analytics/import-summary";
 import type { DataSource, DetectedFile, ParsedActivityData, AnswerKeyEntry, MergeResult } from "@/lib/parsers/types";
 import type { ActivityMetadata } from "@/lib/ingestion/pipeline";
 
@@ -44,6 +46,7 @@ export default function DataImport() {
     sponsor: "",
   });
   const [importing, setImporting] = useState(false);
+  const [importProgress, setImportProgress] = useState<string>("");
   const [result, setResult] = useState<{
     learnersCreated: number;
     learnersUpdated: number;
@@ -148,12 +151,80 @@ export default function DataImport() {
     setStep("preview");
   }, []);
 
+  const BATCH_SIZE = 50; // learners per chunk
+
   const handleImport = async () => {
     if (!parsed || !activity.activity_id || !activity.activity_name) return;
     setImporting(true);
+    setImportProgress("");
+
     try {
-      const res = await importParsedData(parsed, activity);
-      setResult(res);
+      const totalLearners = parsed.learners.length;
+
+      // For small datasets, use the single-call approach
+      if (totalLearners <= BATCH_SIZE) {
+        setImportProgress("Importing data...");
+        const res = await importParsedData(parsed, activity);
+        setResult(res);
+        setStep("results");
+        setImporting(false);
+        return;
+      }
+
+      // Large dataset: send in batches
+      const combined = {
+        learnersCreated: 0,
+        learnersUpdated: 0,
+        participationsCreated: 0,
+        questionsCreated: 0,
+        responsesCreated: 0,
+        evaluationResponsesCreated: 0,
+        emailAliasesFlagged: 0,
+        errors: [] as string[],
+        warnings: [] as string[],
+      };
+
+      const totalBatches = Math.ceil(totalLearners / BATCH_SIZE);
+
+      for (let i = 0; i < totalLearners; i += BATCH_SIZE) {
+        const batchNum = Math.floor(i / BATCH_SIZE) + 1;
+        setImportProgress(`Processing batch ${batchNum} of ${totalBatches} (${Math.min(i + BATCH_SIZE, totalLearners)}/${totalLearners} learners)...`);
+
+        const batch = parsed.learners.slice(i, i + BATCH_SIZE);
+        const isFirst = i === 0;
+
+        const res = await importLearnerBatch(
+          activity.activity_id,
+          batch,
+          activity,
+          isFirst
+            ? {
+                parsed: {
+                  source: parsed.source,
+                  sourceFileName: parsed.sourceFileName,
+                  suggestedActivityName: parsed.suggestedActivityName,
+                  questions: parsed.questions,
+                  warnings: parsed.warnings,
+                  excludedCount: parsed.excludedCount,
+                  metadata: parsed.metadata,
+                  mergedSources: parsed.mergedSources,
+                },
+              }
+            : undefined
+        );
+
+        combined.learnersCreated += res.learnersCreated;
+        combined.learnersUpdated += res.learnersUpdated;
+        combined.participationsCreated += res.participationsCreated;
+        combined.questionsCreated += res.questionsCreated;
+        combined.responsesCreated += res.responsesCreated;
+        combined.evaluationResponsesCreated += res.evaluationResponsesCreated;
+        combined.emailAliasesFlagged += res.emailAliasesFlagged;
+        combined.errors.push(...res.errors);
+        if (isFirst) combined.warnings.push(...res.warnings);
+      }
+
+      setResult(combined);
       setStep("results");
     } catch (err) {
       setResult({
@@ -189,6 +260,7 @@ export default function DataImport() {
       sponsor: "",
     });
     setResult(null);
+    setImportProgress("");
   };
 
   const detectedCount = files.filter((f) => f.detection != null).length;
@@ -418,87 +490,20 @@ export default function DataImport() {
               disabled={!activity.activity_id || !activity.activity_name || importing}
               className="px-4 py-2 bg-teal-600 text-white rounded-lg text-sm hover:bg-teal-700 disabled:opacity-50"
             >
-              {importing ? "Importing..." : "Import Data"}
+              {importing ? (importProgress || "Importing...") : "Import Data"}
             </button>
           </div>
         </div>
       )}
 
       {/* Step 6: Results */}
-      {step === "results" && result && (
-        <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
-          <h2 className="text-lg font-semibold mb-4">Import Results</h2>
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
-            <div className="text-center p-3 bg-teal-50 rounded-lg">
-              <div className="text-2xl font-bold text-teal-700">{result.learnersCreated}</div>
-              <div className="text-xs text-teal-600">Learners Created</div>
-            </div>
-            <div className="text-center p-3 bg-teal-50 rounded-lg">
-              <div className="text-2xl font-bold text-teal-700">{result.learnersUpdated}</div>
-              <div className="text-xs text-teal-600">Learners Updated</div>
-            </div>
-            <div className="text-center p-3 bg-accent-50 rounded-lg">
-              <div className="text-2xl font-bold text-accent-700">{result.participationsCreated}</div>
-              <div className="text-xs text-accent-600">Participations</div>
-            </div>
-            <div className="text-center p-3 bg-navy-50 rounded-lg">
-              <div className="text-2xl font-bold text-navy-700">{result.questionsCreated}</div>
-              <div className="text-xs text-navy-500">Questions</div>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-2 md:grid-cols-3 gap-3 mb-4">
-            <div className="text-center p-3 bg-gray-50 rounded-lg">
-              <div className="text-xl font-bold text-navy-700">{result.responsesCreated}</div>
-              <div className="text-xs text-navy-500">Question Responses</div>
-            </div>
-            <div className="text-center p-3 bg-gray-50 rounded-lg">
-              <div className="text-xl font-bold text-navy-700">{result.evaluationResponsesCreated}</div>
-              <div className="text-xs text-navy-500">Evaluation Responses</div>
-            </div>
-            {result.emailAliasesFlagged > 0 && (
-              <div className="text-center p-3 bg-amber-50 rounded-lg">
-                <div className="text-xl font-bold text-amber-700">{result.emailAliasesFlagged}</div>
-                <div className="text-xs text-amber-600">Email Aliases Flagged</div>
-              </div>
-            )}
-          </div>
-
-          {result.warnings.length > 0 && (
-            <div className="mt-4 p-3 bg-amber-50 border border-amber-200 rounded-lg">
-              <p className="font-medium text-amber-700 mb-2">Warnings ({result.warnings.length}):</p>
-              <ul className="text-sm text-amber-600 space-y-1">
-                {result.warnings.slice(0, 10).map((w, i) => (
-                  <li key={i}>{w}</li>
-                ))}
-                {result.warnings.length > 10 && (
-                  <li>...and {result.warnings.length - 10} more</li>
-                )}
-              </ul>
-            </div>
-          )}
-
-          {result.errors.length > 0 && (
-            <div className="mt-4 p-3 bg-red-50 border border-red-200 rounded-lg">
-              <p className="font-medium text-red-700 mb-2">Errors ({result.errors.length}):</p>
-              <ul className="text-sm text-red-600 space-y-1">
-                {result.errors.slice(0, 10).map((e, i) => (
-                  <li key={i}>{e}</li>
-                ))}
-                {result.errors.length > 10 && (
-                  <li>...and {result.errors.length - 10} more</li>
-                )}
-              </ul>
-            </div>
-          )}
-
-          <button
-            onClick={resetWizard}
-            className="mt-4 px-4 py-2 bg-teal-500 text-white rounded-lg text-sm hover:bg-teal-600"
-          >
-            Import Another File
-          </button>
-        </div>
+      {step === "results" && result && parsed && (
+        <ImportResults
+          summary={computeImportSummary(parsed, mergeResult, { questionsCreated: result.questionsCreated })}
+          errors={result.errors}
+          warnings={result.warnings}
+          onReset={resetWizard}
+        />
       )}
     </div>
   );
