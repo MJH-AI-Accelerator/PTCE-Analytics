@@ -37,6 +37,8 @@ export interface CategoryPerformance {
   postCorrectPct: number;
   changePct: number;
   questionCount: number;
+  /** Question numbers in this category (e.g., [1, 3]) */
+  questionNumbers: number[];
 }
 
 export interface PracticeSettingBreakdown {
@@ -342,6 +344,7 @@ function computeCategoryPerformance(
         postCorrectPct: postPctVal,
         changePct: Math.round((postPctVal - prePctVal) * 10) / 10,
         questionCount: qNums.length,
+        questionNumbers: qNums.sort((a, b) => a - b),
       });
     }
   }

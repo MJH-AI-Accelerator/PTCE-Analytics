@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect, useRef } from "react";
 import SourceSelector from "@/components/SourceSelector";
 import MultiFileUploader from "@/components/MultiFileUploader";
 import AnswerKeyUploader from "@/components/AnswerKeyUploader";
@@ -58,6 +58,39 @@ export default function DataImport() {
     errors: string[];
     warnings: string[];
   } | null>(null);
+
+  const isRestored = useRef(false);
+
+  // Restore wizard state from sessionStorage on mount
+  useEffect(() => {
+    if (isRestored.current) return;
+    isRestored.current = true;
+    try {
+      const saved = sessionStorage.getItem("importWizardState");
+      if (!saved) return;
+      const state = JSON.parse(saved);
+      if (state.step) setStep(state.step);
+      if (state.parsed) setParsed(state.parsed);
+      if (state.mergeResult) setMergeResult(state.mergeResult);
+      if (state.hasHighlighting != null) setHasHighlighting(state.hasHighlighting);
+      if (state.activity) setActivity(state.activity);
+      if (state.result) setResult(state.result);
+    } catch {
+      // Ignore corrupted state
+    }
+  }, []);
+
+  // Save wizard state to sessionStorage when key state changes
+  useEffect(() => {
+    // Don't save during initial mount before restore completes
+    if (!isRestored.current) return;
+    try {
+      const state = { step, parsed, mergeResult, hasHighlighting, activity, result };
+      sessionStorage.setItem("importWizardState", JSON.stringify(state));
+    } catch {
+      // sessionStorage may be full or unavailable
+    }
+  }, [step, parsed, mergeResult, hasHighlighting, activity, result]);
 
   const handleParse = useCallback(() => {
     if (files.length === 0) return;
@@ -276,6 +309,7 @@ export default function DataImport() {
     });
     setResult(null);
     setImportProgress("");
+    sessionStorage.removeItem("importWizardState");
   };
 
   const detectedCount = files.filter((f) => f.detection != null).length;
