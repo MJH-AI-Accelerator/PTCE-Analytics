@@ -489,11 +489,11 @@ export default function DataImport() {
 
 function formatSource(source: string): string {
   const labels: Record<string, string> = {
-    array: "Array",
+    array: "Array Report",
     globalmeet: "GlobalMeet",
     pigeonhole: "Pigeonhole",
-    snowflake_eval: "Snowflake Evaluation",
-    snowflake_ondemand: "Snowflake On-Demand",
+    snowflake_eval: "Live Evaluation Data (Snowflake)",
+    snowflake_ondemand: "On-Demand Data (Snowflake)",
   };
   return labels[source] || source;
 }

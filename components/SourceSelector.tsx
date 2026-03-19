@@ -10,11 +10,11 @@ interface SourceSelectorProps {
 
 const sources: { value: DataSource | "auto"; label: string; description: string }[] = [
   { value: "auto", label: "Auto-Detect", description: "Automatically identify the file format" },
-  { value: "array", label: "Array", description: "Live activity data with Survey sheet" },
+  { value: "array", label: "Array Report", description: "Live activity data with Survey sheet" },
   { value: "globalmeet", label: "GlobalMeet", description: "Webinar report with survey data" },
   { value: "pigeonhole", label: "Pigeonhole", description: "Pre/post poll data (2 files)" },
-  { value: "snowflake_eval", label: "Snowflake Evaluation", description: "Live credit evaluation data" },
-  { value: "snowflake_ondemand", label: "Snowflake On-Demand", description: "Combined assessment + evaluation" },
+  { value: "snowflake_eval", label: "Live Evaluation Data (Snowflake)", description: "Live credit evaluation data" },
+  { value: "snowflake_ondemand", label: "On-Demand Data (Snowflake)", description: "Combined assessment + evaluation" },
 ];
 
 export default function SourceSelector({ selected, onChange }: SourceSelectorProps) {

@@ -1,8 +1,7 @@
 import { getDashboardMetrics } from "@/lib/queries/dashboard";
 import MetricCard from "@/components/MetricCard";
 import DashboardCharts from "@/components/DashboardCharts";
-import { Users, BookOpen, FolderOpen, TrendingUp } from "lucide-react";
-import Link from "next/link";
+import { Users, FolderOpen, TrendingUp } from "lucide-react";
 
 export const dynamic = "force-dynamic";
 
@@ -15,8 +14,6 @@ export default async function Dashboard() {
     // Supabase not configured yet — show empty state
   }
 
-  const isEmpty = metrics.totalLearners === 0 && metrics.totalActivities === 0;
-
   return (
     <div>
       <h1 className="text-3xl font-bold mb-2">PTCE Learner Analytics Dashboard</h1>
@@ -24,9 +21,8 @@ export default async function Dashboard() {
         Welcome to the PTCE Learner Data Longitudinal Analysis Platform
       </p>
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-6">
         <MetricCard title="Total Learners" value={metrics.totalLearners} icon={Users} />
-        <MetricCard title="Total Participations" value={metrics.totalParticipations} icon={BookOpen} />
         <MetricCard title="Activities Tracked" value={metrics.totalActivities} icon={FolderOpen} />
         <MetricCard
           title="Avg Score Change"
@@ -35,21 +31,7 @@ export default async function Dashboard() {
         />
       </div>
 
-      {isEmpty ? (
-        <div className="card text-center mt-8">
-          <p className="text-navy-400 mb-4">
-            No data imported yet. Go to Data Import to get started.
-          </p>
-          <Link
-            href="/data-import"
-            className="btn-primary inline-block"
-          >
-            Import Data
-          </Link>
-        </div>
-      ) : (
-        <DashboardCharts />
-      )}
+      <DashboardCharts />
     </div>
   );
 }
