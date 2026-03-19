@@ -203,7 +203,7 @@ export default function DataImport() {
           const currentIdx = STEPS.indexOf(step);
           const isActive = step === s;
           const isCompleted = currentIdx > i;
-          const canNavigate = isCompleted && step !== "results";
+          const canNavigate = isCompleted;
 
           return (
             <button
