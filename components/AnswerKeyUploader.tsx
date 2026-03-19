@@ -27,6 +27,8 @@ export default function AnswerKeyUploader({ onAnswerKeyLoaded, hasHighlighting }
       const buffer = await file.arrayBuffer();
       const { entries, raw } = await parseSurveyAssessmentDoc(buffer);
 
+      console.log("[SurveyDoc] Parsed questions:", raw);
+      console.log("[SurveyDoc] Answer key entries:", entries);
       setEntryCount(entries.length);
       setCategoryCount(raw.filter((q) => q.category != null).length);
       onAnswerKeyLoaded(entries);

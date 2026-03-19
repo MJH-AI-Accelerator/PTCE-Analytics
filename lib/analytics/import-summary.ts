@@ -1,5 +1,7 @@
 import type { ParsedActivityData, MergeResult, ParsedQuestion } from "@/lib/parsers/types";
 
+const NO_BARRIER_PATTERN = /do not anticipate|no barriers|none/i;
+
 // ── Result types ──
 
 export interface QuestionPerformance {
@@ -82,6 +84,8 @@ export interface ImportSummary {
   // Evaluation insights
   intendedChanges: FrequencyItem[];
   barriers: FrequencyItem[];
+  /** "I do not anticipate any barriers" — separated for display at the bottom */
+  noBarrierItem: FrequencyItem | null;
 
   // Overall score summary
   avgPreScore: number | null;
@@ -100,13 +104,14 @@ export function computeImportSummary(
   const questions = parsed.questions;
 
   // ── Primary metrics ──
-  // Learner count: all unique emails from assessment source (Array report)
-  // Includes learners with demographics-only rows (no responses) since they were in the source file
+  // Learner count: emails from assessment source (Array report) only
+  // When merged, total learners includes eval-only learners — subtract them
+  const evalOnlyCount = mergeResult?.evalOnlyCount ?? 0;
+  const learnerCount = learners.length - evalOnlyCount;
+
   const learnersWithEval = learners.filter(
     (l) => l.evaluationResponses.length > 0
   );
-
-  const learnerCount = learners.length;
   const completerCount = learnersWithEval.length;
   const matchedCount = mergeResult?.matchedCount ?? Math.min(learnerCount, completerCount);
   const questionsCreated = dbResult.questionsCreated || questions.filter((q) => q.questionType === "assessment").length;
@@ -142,7 +147,9 @@ export function computeImportSummary(
 
   // ── Evaluation insights ──
   const intendedChanges = computeEvalFrequency(learners, "intended_change");
-  const barriers = computeEvalFrequency(learners, "barrier");
+  const allBarrierItems = computeEvalFrequency(learners, "barrier");
+  const noBarrierItem = allBarrierItems.find((i) => NO_BARRIER_PATTERN.test(i.text)) ?? null;
+  const barriers = allBarrierItems.filter((i) => !NO_BARRIER_PATTERN.test(i.text));
 
   // ── Overall score summary (2 decimal places) ──
   const preScores = learners.map((l) => l.preScore).filter((s): s is number => s != null);
@@ -167,6 +174,7 @@ export function computeImportSummary(
     presenterQuestionCount,
     intendedChanges,
     barriers,
+    noBarrierItem,
     avgPreScore,
     avgPostScore,
     avgScoreChange,
@@ -377,8 +385,6 @@ function computeTopEmployers(
     .slice(0, 10);
 }
 
-const NO_BARRIER_PATTERN = /do not anticipate|no barriers|none/i;
-
 function computeEvalFrequency(
   learners: ParsedActivityData["learners"],
   evalCategory: string
@@ -398,18 +404,8 @@ function computeEvalFrequency(
     }
   }
 
-  const items = Array.from(counts.entries())
-    .map(([text, count]) => ({ text, count }));
-
-  // For barriers: sort "I do not anticipate any barriers" to the end
-  if (evalCategory === "barrier") {
-    const noBarrier = items.filter((i) => NO_BARRIER_PATTERN.test(i.text));
-    const realBarriers = items
-      .filter((i) => !NO_BARRIER_PATTERN.test(i.text))
-      .sort((a, b) => b.count - a.count)
-      .slice(0, 10);
-    return [...realBarriers, ...noBarrier];
-  }
-
-  return items.sort((a, b) => b.count - a.count).slice(0, 10);
+  return Array.from(counts.entries())
+    .map(([text, count]) => ({ text, count }))
+    .sort((a, b) => b.count - a.count)
+    .slice(0, 10);
 }

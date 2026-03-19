@@ -282,7 +282,7 @@ export default function ImportResults({ summary, errors, warnings, onReset }: Im
             </div>
           )}
 
-          {summary.barriers.length > 0 && (
+          {(summary.barriers.length > 0 || summary.noBarrierItem) && (
             <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
               <h3 className="text-sm font-semibold text-navy-600 mb-3">Most Common Barriers</h3>
               <ol className="space-y-2">
@@ -294,6 +294,12 @@ export default function ImportResults({ summary, errors, warnings, onReset }: Im
                   </li>
                 ))}
               </ol>
+              {summary.noBarrierItem && (
+                <div className="mt-3 pt-3 border-t border-gray-100 flex items-center justify-between text-sm text-navy-400">
+                  <span>{summary.noBarrierItem.text}</span>
+                  <span className="text-xs">({summary.noBarrierItem.count})</span>
+                </div>
+              )}
             </div>
           )}
         </div>
