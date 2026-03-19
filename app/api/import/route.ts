@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { supabase } from "@/lib/supabase";
+import { getServiceClient } from "@/lib/supabase";
 import { storeParsedActivityData, type ActivityMetadata } from "@/lib/ingestion/pipeline";
 import type { ParsedActivityData, ParsedLearner } from "@/lib/parsers/types";
 
@@ -36,6 +36,7 @@ export async function POST(request: NextRequest) {
       mergedSources: init?.mergedSources,
     };
 
+    const supabase = getServiceClient();
     const result = await storeParsedActivityData(supabase, parsed, activity, {
       skipActivityUpsert: skipActivityUpsert ?? !init,
       skipQuestionUpsert: skipQuestionUpsert ?? !init,
