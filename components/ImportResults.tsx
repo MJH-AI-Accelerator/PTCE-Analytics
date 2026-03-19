@@ -34,14 +34,7 @@ export default function ImportResults({ summary, errors, warnings, onReset }: Im
     <div className="space-y-6">
       {/* Header */}
       <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
-        <div className="flex items-center justify-between mb-4">
-          <h2 className="text-lg font-semibold">Import Summary</h2>
-          {!hasErrors && (
-            <span className="text-sm text-green-600 bg-green-50 px-3 py-1 rounded-full font-medium">
-              Import Successful
-            </span>
-          )}
-        </div>
+        <h2 className="text-lg font-semibold mb-4">Import Summary</h2>
 
         {/* Primary Metrics */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-2">
@@ -348,13 +341,47 @@ export default function ImportResults({ summary, errors, warnings, onReset }: Im
         </div>
       )}
 
+      {/* Import status banner */}
+      {errors.length === 0 ? (
+        <div className="p-4 bg-green-50 border border-green-200 rounded-lg flex items-center gap-3">
+          <svg className="w-5 h-5 text-green-600 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+          </svg>
+          <div>
+            <p className="text-sm font-medium text-green-700">Import completed successfully</p>
+            <p className="text-xs text-green-600 mt-0.5">Data has been saved to the database and is available across all analytics pages.</p>
+          </div>
+        </div>
+      ) : (
+        <div className="p-4 bg-red-50 border border-red-200 rounded-lg flex items-center gap-3">
+          <svg className="w-5 h-5 text-red-600 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+          </svg>
+          <div>
+            <p className="text-sm font-medium text-red-700">Import completed with errors</p>
+            <p className="text-xs text-red-600 mt-0.5">Some records may not have been saved. Review the errors above.</p>
+          </div>
+        </div>
+      )}
+
       {/* Actions */}
-      <button
-        onClick={onReset}
-        className="px-4 py-2 bg-teal-500 text-white rounded-lg text-sm hover:bg-teal-600"
-      >
-        Import Another File
-      </button>
+      <div className="flex gap-3">
+        <a
+          href="/program-catalog"
+          className="px-4 py-2 bg-teal-600 text-white rounded-lg text-sm hover:bg-teal-700 inline-flex items-center gap-2"
+        >
+          View in Program Catalog
+          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M13 7l5 5m0 0l-5 5m5-5H6" />
+          </svg>
+        </a>
+        <button
+          onClick={onReset}
+          className="px-4 py-2 border border-gray-300 text-navy-600 rounded-lg text-sm hover:bg-navy-50"
+        >
+          Import Another File
+        </button>
+      </div>
     </div>
   );
 }
