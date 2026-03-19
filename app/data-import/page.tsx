@@ -29,7 +29,7 @@ const STEP_LABELS: Record<Step, string> = {
 
 export default function DataImport() {
   const [step, setStep] = useState<Step>("source");
-  const [selectedSource, setSelectedSource] = useState<DataSource | "auto">("auto");
+  const [selectedSources, setSelectedSources] = useState<Set<DataSource | "auto">>(new Set(["auto"]));
   const [files, setFiles] = useState<DetectedFile[]>([]);
   const [parsed, setParsed] = useState<ParsedActivityData | null>(null);
   const [mergeResult, setMergeResult] = useState<MergeResult | null>(null);
@@ -174,7 +174,7 @@ export default function DataImport() {
 
   const resetWizard = () => {
     setStep("source");
-    setSelectedSource("auto");
+    setSelectedSources(new Set(["auto"]));
     setFiles([]);
     setParsed(null);
     setMergeResult(null);
@@ -222,7 +222,7 @@ export default function DataImport() {
       {step === "source" && (
         <div className="space-y-6">
           <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
-            <SourceSelector selected={selectedSource} onChange={setSelectedSource} />
+            <SourceSelector selected={selectedSources} onChange={setSelectedSources} />
           </div>
           <div className="flex gap-3">
             <button

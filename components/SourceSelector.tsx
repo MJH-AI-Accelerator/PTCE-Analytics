@@ -1,11 +1,11 @@
 "use client";
 
 import type { DataSource } from "@/lib/parsers/types";
-import { Database, Radio, Zap } from "lucide-react";
+import { Check } from "lucide-react";
 
 interface SourceSelectorProps {
-  selected: DataSource | "auto";
-  onChange: (source: DataSource | "auto") => void;
+  selected: Set<DataSource | "auto">;
+  onChange: (sources: Set<DataSource | "auto">) => void;
 }
 
 const sources: { value: DataSource | "auto"; label: string; description: string }[] = [
@@ -18,31 +18,54 @@ const sources: { value: DataSource | "auto"; label: string; description: string 
 ];
 
 export default function SourceSelector({ selected, onChange }: SourceSelectorProps) {
+  const toggle = (value: DataSource | "auto") => {
+    const next = new Set(selected);
+    if (value === "auto") {
+      // Auto-detect is exclusive — clear others
+      onChange(new Set(["auto"]));
+      return;
+    }
+    // Deselect auto when picking specific sources
+    next.delete("auto");
+    if (next.has(value)) {
+      next.delete(value);
+      // If nothing selected, fall back to auto
+      if (next.size === 0) next.add("auto");
+    } else {
+      next.add(value);
+    }
+    onChange(next);
+  };
+
   return (
     <div className="space-y-3">
-      <h2 className="text-lg font-semibold">Select Data Source</h2>
+      <h2 className="text-lg font-semibold">Select Data Source(s)</h2>
+      <p className="text-sm text-navy-400">Select one or more sources you are importing for this program</p>
       <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-        {sources.map((s) => (
-          <button
-            key={s.value}
-            onClick={() => onChange(s.value)}
-            className={`flex items-start gap-3 p-4 rounded-lg border-2 text-left transition-all ${
-              selected === s.value
-                ? "border-teal-500 bg-teal-50"
-                : "border-gray-200 hover:border-teal-300 bg-white"
-            }`}
-          >
-            <div className={`mt-0.5 w-4 h-4 rounded-full border-2 flex items-center justify-center shrink-0 ${
-              selected === s.value ? "border-teal-500" : "border-gray-300"
-            }`}>
-              {selected === s.value && <div className="w-2 h-2 rounded-full bg-teal-500" />}
-            </div>
-            <div>
-              <div className="font-medium text-navy-700">{s.label}</div>
-              <div className="text-sm text-navy-400 mt-0.5">{s.description}</div>
-            </div>
-          </button>
-        ))}
+        {sources.map((s) => {
+          const isSelected = selected.has(s.value);
+          return (
+            <button
+              key={s.value}
+              onClick={() => toggle(s.value)}
+              className={`flex items-start gap-3 p-4 rounded-lg border-2 text-left transition-all ${
+                isSelected
+                  ? "border-teal-500 bg-teal-50"
+                  : "border-gray-200 hover:border-teal-300 bg-white"
+              }`}
+            >
+              <div className={`mt-0.5 w-4 h-4 rounded flex items-center justify-center shrink-0 ${
+                isSelected ? "bg-teal-500 border-teal-500" : "border-2 border-gray-300"
+              }`}>
+                {isSelected && <Check size={12} className="text-white" />}
+              </div>
+              <div>
+                <div className="font-medium text-navy-700">{s.label}</div>
+                <div className="text-sm text-navy-400 mt-0.5">{s.description}</div>
+              </div>
+            </button>
+          );
+        })}
       </div>
     </div>
   );
