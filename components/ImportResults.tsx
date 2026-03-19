@@ -186,34 +186,47 @@ export default function ImportResults({ summary, errors, warnings, onReset }: Im
               <span className="font-medium">Needs attention:</span> {summary.weakestCategory} (lowest post-test performance)
             </div>
           )}
-          <div className="space-y-2">
+          <div className="space-y-4">
             {summary.categoryPerformance.map((c) => (
-              <div key={c.category} className="flex items-center gap-3">
-                <div className="w-40 text-sm text-navy-600 truncate" title={c.category}>{c.category}</div>
-                <div className="flex-1 flex items-center gap-2">
-                  <div className="flex-1 bg-gray-100 rounded-full h-4 relative overflow-hidden">
-                    <div
-                      className="absolute left-0 top-0 h-full bg-navy-200 rounded-full"
-                      style={{ width: `${Math.min(c.preCorrectPct, 100)}%` }}
-                    />
-                    <div
-                      className="absolute left-0 top-0 h-full bg-teal-500 rounded-full opacity-75"
-                      style={{ width: `${Math.min(c.postCorrectPct, 100)}%` }}
-                    />
-                  </div>
-                  <div className="text-xs text-navy-500 w-28 text-right">
-                    {c.preCorrectPct}% → {c.postCorrectPct}%
+              <div key={c.category}>
+                <div className="flex items-center justify-between mb-1">
+                  <div className="text-sm text-navy-600 font-medium truncate" title={c.category}>{c.category}</div>
+                  <div className={`text-xs font-medium ${changeColor(c.changePct)}`}>
+                    {changePrefix(c.changePct)}{c.changePct}%
                   </div>
                 </div>
-                <div className={`text-xs font-medium w-14 text-right ${changeColor(c.changePct)}`}>
-                  {changePrefix(c.changePct)}{c.changePct}%
+                <div className="space-y-1">
+                  {/* Pre bar — light */}
+                  <div className="flex items-center gap-2">
+                    <span className="text-[10px] text-navy-400 w-8">Pre</span>
+                    <div className="flex-1 bg-gray-100 rounded-full h-5 overflow-hidden">
+                      <div
+                        className="h-full bg-teal-200 rounded-full flex items-center justify-end pr-2"
+                        style={{ width: `${Math.max(Math.min(c.preCorrectPct, 100), 8)}%` }}
+                      >
+                        <span className="text-[10px] text-teal-700 font-medium">{c.preCorrectPct}%</span>
+                      </div>
+                    </div>
+                  </div>
+                  {/* Post bar — dark */}
+                  <div className="flex items-center gap-2">
+                    <span className="text-[10px] text-navy-400 w-8">Post</span>
+                    <div className="flex-1 bg-gray-100 rounded-full h-5 overflow-hidden">
+                      <div
+                        className="h-full bg-teal-600 rounded-full flex items-center justify-end pr-2"
+                        style={{ width: `${Math.max(Math.min(c.postCorrectPct, 100), 8)}%` }}
+                      >
+                        <span className="text-[10px] text-white font-medium">{c.postCorrectPct}%</span>
+                      </div>
+                    </div>
+                  </div>
                 </div>
               </div>
             ))}
           </div>
           <div className="flex items-center gap-4 mt-3 text-xs text-navy-400">
-            <span className="flex items-center gap-1"><span className="w-3 h-3 bg-navy-200 rounded-full inline-block" /> Pre</span>
-            <span className="flex items-center gap-1"><span className="w-3 h-3 bg-teal-500 rounded-full inline-block opacity-75" /> Post</span>
+            <span className="flex items-center gap-1"><span className="w-3 h-3 bg-teal-200 rounded-full inline-block" /> Pre</span>
+            <span className="flex items-center gap-1"><span className="w-3 h-3 bg-teal-600 rounded-full inline-block" /> Post</span>
           </div>
         </div>
       )}
