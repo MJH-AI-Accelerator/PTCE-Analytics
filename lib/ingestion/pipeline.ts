@@ -162,8 +162,8 @@ export async function storeParsedActivityData(
   };
 
   try {
-    // 1. Upsert activity with source tracking
-    await supabase.from("activities").upsert({
+    // 1. Upsert activity — try with new columns first, fall back to base columns
+    const activityBase = {
       activity_id: activity.activity_id,
       activity_name: activity.activity_name,
       activity_type: activity.activity_type ?? null,
@@ -171,10 +171,17 @@ export async function storeParsedActivityData(
       therapeutic_area: activity.therapeutic_area ?? null,
       disease_state: activity.disease_state ?? null,
       sponsor: activity.sponsor ?? null,
+    };
+    const { error: actError } = await supabase.from("activities").upsert({
+      ...activityBase,
       data_source: parsed.source,
       source_file_name: parsed.sourceFileName,
       import_date: new Date().toISOString(),
     });
+    if (actError) {
+      // New columns may not exist yet — retry without them
+      await supabase.from("activities").upsert(activityBase);
+    }
 
     // 2. Upsert questions and get ID map
     const questionIdMap = await upsertQuestions(supabase, activity.activity_id, parsed.questions);
@@ -188,8 +195,13 @@ export async function storeParsedActivityData(
     // 4. Process each learner
     for (const learner of parsed.learners) {
       try {
-        // Email alias resolution
-        const resolvedEmail = await resolveEmailAlias(supabase, learner.email);
+        // Email alias resolution (graceful if table doesn't exist)
+        let resolvedEmail: string;
+        try {
+          resolvedEmail = await resolveEmailAlias(supabase, learner.email);
+        } catch {
+          resolvedEmail = learner.email.trim().toLowerCase();
+        }
         const emailLower = resolvedEmail.trim().toLowerCase();
 
         const employerRaw = learner.employer;
@@ -259,61 +271,72 @@ export async function storeParsedActivityData(
           result.evaluationResponsesCreated += evalCount;
         }
 
-        // Insert presenter responses
+        // Insert presenter responses (graceful if tables don't exist)
         if (learner.presenterResponses.length > 0) {
-          for (const pr of learner.presenterResponses) {
-            // Upsert presenter question
-            const { data: pq } = await supabase
-              .from("presenter_questions")
-              .upsert(
-                {
-                  activity_id: activity.activity_id,
-                  question_number: pr.questionNumber,
-                  question_text: pr.questionText,
-                },
-                { onConflict: "activity_id,question_number" }
-              )
-              .select("id")
-              .single();
+          try {
+            for (const pr of learner.presenterResponses) {
+              const { data: pq } = await supabase
+                .from("presenter_questions")
+                .upsert(
+                  {
+                    activity_id: activity.activity_id,
+                    question_number: pr.questionNumber,
+                    question_text: pr.questionText,
+                  },
+                  { onConflict: "activity_id,question_number" }
+                )
+                .select("id")
+                .single();
 
-            if (pq) {
-              await supabase.from("presenter_responses").insert({
-                presenter_question_id: pq.id,
-                participation_id: participationId,
-                response_text: pr.responseText,
-              });
+              if (pq) {
+                await supabase.from("presenter_responses").insert({
+                  presenter_question_id: pq.id,
+                  participation_id: participationId,
+                  response_text: pr.responseText,
+                });
+              }
             }
+          } catch {
+            // presenter_questions/responses tables may not exist yet
           }
         }
 
-        // Check for potential email aliases (for unmatched eval data)
-        if (resolvedEmail === learner.email.trim().toLowerCase() && !existingEmails.has(emailLower)) {
-          const match = await findPotentialEmailMatches(
-            supabase, learner.email, learner.firstName, learner.lastName
-          );
-          if (match) {
-            await flagEmailMatch(supabase, match.primaryEmail, learner.email, match.confidence);
-            result.emailAliasesFlagged++;
+        // Check for potential email aliases (graceful if table doesn't exist)
+        try {
+          if (resolvedEmail === learner.email.trim().toLowerCase() && !existingEmails.has(emailLower)) {
+            const match = await findPotentialEmailMatches(
+              supabase, learner.email, learner.firstName, learner.lastName
+            );
+            if (match) {
+              await flagEmailMatch(supabase, match.primaryEmail, learner.email, match.confidence);
+              result.emailAliasesFlagged++;
+            }
           }
+        } catch {
+          // email_aliases table may not exist yet
         }
       } catch (err) {
         result.errors.push(`${learner.email}: ${err instanceof Error ? err.message : "Unknown error"}`);
       }
     }
 
-    // 5. Create import batch audit record
-    await supabase.from("import_batches").insert({
-      activity_id: activity.activity_id,
-      data_source: parsed.source,
-      source_file_name: parsed.sourceFileName,
-      learners_created: result.learnersCreated,
-      learners_updated: result.learnersUpdated,
-      participations_created: result.participationsCreated,
-      questions_created: result.questionsCreated,
-      responses_created: result.responsesCreated,
-      warnings: result.warnings,
-      errors: result.errors,
-    });
+    // 5. Create import batch audit record (graceful if table doesn't exist)
+    try {
+      await supabase.from("import_batches").insert({
+        activity_id: activity.activity_id,
+        data_source: parsed.source,
+        source_file_name: parsed.sourceFileName,
+        learners_created: result.learnersCreated,
+        learners_updated: result.learnersUpdated,
+        participations_created: result.participationsCreated,
+        questions_created: result.questionsCreated,
+        responses_created: result.responsesCreated,
+        warnings: result.warnings,
+        errors: result.errors,
+      });
+    } catch {
+      // import_batches table may not exist yet
+    }
   } catch (err) {
     result.errors.push(`Pipeline error: ${err instanceof Error ? err.message : "Unknown error"}`);
   }

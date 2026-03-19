@@ -18,15 +18,19 @@ export async function resolveOrCreateLearner(
   if (!email) throw new Error("Email is required for learner identity resolution");
 
   // Check email aliases — resolve to primary email if this is a known alias
-  const { data: alias } = await supabase
-    .from("email_aliases")
-    .select("primary_email")
-    .eq("alias_email", email)
-    .eq("reviewed", true)
-    .single();
+  try {
+    const { data: alias } = await supabase
+      .from("email_aliases")
+      .select("primary_email")
+      .eq("alias_email", email)
+      .eq("reviewed", true)
+      .single();
 
-  if (alias) {
-    email = alias.primary_email;
+    if (alias) {
+      email = alias.primary_email;
+    }
+  } catch {
+    // email_aliases table may not exist yet — skip alias resolution
   }
 
   // Check if exists

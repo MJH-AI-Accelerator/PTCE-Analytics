@@ -16,7 +16,8 @@ export async function insertEvaluationResponses(
   // Delete existing evaluation responses for this participation
   await supabase.from("evaluation_responses").delete().eq("participation_id", participationId);
 
-  const inserts = responses.map((r) => ({
+  // Try with faculty_name column first, fall back without it
+  const insertsWithFaculty = responses.map((r) => ({
     participation_id: participationId,
     eval_question_text: r.questionText,
     eval_category: r.evalCategory,
@@ -25,12 +26,32 @@ export async function insertEvaluationResponses(
     faculty_name: r.facultyName ?? null,
   }));
 
+  const insertsWithout = responses.map((r) => ({
+    participation_id: participationId,
+    eval_question_text: r.questionText,
+    eval_category: r.evalCategory,
+    response_text: r.responseText,
+    response_numeric: r.responseNumeric,
+  }));
+
   let count = 0;
-  // Batch insert in chunks of 100
-  for (let i = 0; i < inserts.length; i += 100) {
-    const chunk = inserts.slice(i, i + 100);
+  let useFaculty = true;
+
+  for (let i = 0; i < responses.length; i += 100) {
+    const chunk = useFaculty
+      ? insertsWithFaculty.slice(i, i + 100)
+      : insertsWithout.slice(i, i + 100);
+
     const { error } = await supabase.from("evaluation_responses").insert(chunk);
-    if (error) throw error;
+    if (error && useFaculty && i === 0) {
+      // faculty_name column may not exist — retry without it
+      useFaculty = false;
+      const fallbackChunk = insertsWithout.slice(i, i + 100);
+      const { error: fallbackError } = await supabase.from("evaluation_responses").insert(fallbackChunk);
+      if (fallbackError) throw fallbackError;
+    } else if (error) {
+      throw error;
+    }
     count += chunk.length;
   }
 
