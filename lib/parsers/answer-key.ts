@@ -108,7 +108,7 @@ export function applyAnswerKey(
     if (key.questionNumber != null) {
       const q = questions.find((q) => q.questionNumber === key.questionNumber);
       if (q) {
-        q.correctAnswer = key.correctAnswer;
+        if (key.correctAnswer) q.correctAnswer = key.correctAnswer;
         if (key.questionCategory) q.questionCategory = key.questionCategory;
         if (key.questionType) q.questionType = key.questionType;
         matchedQuestionNums.add(q.questionNumber);
@@ -133,7 +133,7 @@ export function applyAnswerKey(
         const results = fuse.search(key.questionText);
         if (results.length > 0 && results[0].score! < 0.4) {
           const q = results[0].item;
-          q.correctAnswer = key.correctAnswer;
+          if (key.correctAnswer) q.correctAnswer = key.correctAnswer;
           if (key.questionCategory) q.questionCategory = key.questionCategory;
           if (key.questionType) q.questionType = key.questionType;
         }

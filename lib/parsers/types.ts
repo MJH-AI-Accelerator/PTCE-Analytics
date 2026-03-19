@@ -127,11 +127,11 @@ export interface MergeResult {
   warnings: ParseWarning[];
 }
 
-/** Answer key entry — maps question text or number to the correct answer */
+/** Answer key entry — maps question text or number to the correct answer and/or category */
 export interface AnswerKeyEntry {
   questionNumber?: number;
   questionText?: string;
-  correctAnswer: string;
+  correctAnswer?: string;
   questionCategory?: string;
   questionType?: QuestionType;
 }

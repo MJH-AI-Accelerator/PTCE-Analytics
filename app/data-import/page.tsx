@@ -11,6 +11,7 @@ import { parsePigeonholeFiles } from "@/lib/parsers/pigeonhole-parser";
 import { parseSnowflakeEvalFile } from "@/lib/parsers/snowflake-eval-parser";
 import { parseSnowflakeOnDemandFile } from "@/lib/parsers/snowflake-ondemand-parser";
 import { mergeSources } from "@/lib/parsers/merge-sources";
+import { applyAnswerKey } from "@/lib/parsers/answer-key";
 import ImportResults from "@/components/ImportResults";
 import { computeImportSummary } from "@/lib/analytics/import-summary";
 import type { DataSource, DetectedFile, ParsedActivityData, AnswerKeyEntry, MergeResult } from "@/lib/parsers/types";
@@ -146,9 +147,14 @@ export default function DataImport() {
     }
   }, [files]);
 
-  const handleAnswerKeyLoaded = useCallback((_entries: AnswerKeyEntry[]) => {
+  const handleAnswerKeyLoaded = useCallback((entries: AnswerKeyEntry[]) => {
+    // Apply answer key entries (categories, correct answers) to parsed questions
+    if (entries.length > 0 && parsed) {
+      const updatedQuestions = applyAnswerKey([...parsed.questions], entries);
+      setParsed({ ...parsed, questions: updatedQuestions });
+    }
     setStep("preview");
-  }, []);
+  }, [parsed]);
 
   const BATCH_SIZE = 50; // learners per chunk
 
