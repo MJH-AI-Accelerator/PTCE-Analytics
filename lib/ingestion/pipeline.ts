@@ -133,7 +133,7 @@ export async function ingestData(
         result.participationsCreated++;
       }
     } catch (err) {
-      result.errors.push(`Row ${i + 1}: ${err instanceof Error ? err.message : "Unknown error"}`);
+      result.errors.push(`Row ${i + 1}: ${err instanceof Error ? err.message : typeof err === "object" && err !== null && "message" in err ? String((err as { message: unknown }).message) : JSON.stringify(err)}`);
     }
   }
 
@@ -332,7 +332,7 @@ export async function storeParsedActivityData(
           // email_aliases table may not exist yet
         }
       } catch (err) {
-        result.errors.push(`${learner.email}: ${err instanceof Error ? err.message : "Unknown error"}`);
+        result.errors.push(`${learner.email}: ${err instanceof Error ? err.message : typeof err === "object" && err !== null && "message" in err ? String((err as { message: unknown }).message) : JSON.stringify(err)}`);
       }
     }
 
@@ -357,7 +357,7 @@ export async function storeParsedActivityData(
       }
     }
   } catch (err) {
-    result.errors.push(`Pipeline error: ${err instanceof Error ? err.message : "Unknown error"}`);
+    result.errors.push(`Pipeline error: ${err instanceof Error ? err.message : typeof err === "object" && err !== null && "message" in err ? String((err as { message: unknown }).message) : JSON.stringify(err)}`);
   }
 
   return result;
