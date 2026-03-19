@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useRef, useState, useCallback } from "react";
 import { Upload, FileText, Check, AlertCircle, BookOpen } from "lucide-react";
 import { parseSurveyAssessmentDoc } from "@/lib/parsers/survey-doc-parser";
 import type { AnswerKeyEntry } from "@/lib/parsers/types";
@@ -17,6 +17,7 @@ export default function AnswerKeyUploader({ onAnswerKeyLoaded, hasHighlighting }
   const [categoryCount, setCategoryCount] = useState(0);
   const [parsing, setParsing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [dragging, setDragging] = useState(false);
 
   const handleFileUpload = async (file: File) => {
     setParsing(true);
@@ -39,6 +40,27 @@ export default function AnswerKeyUploader({ onAnswerKeyLoaded, hasHighlighting }
     }
     setParsing(false);
   };
+
+  const handleDrop = useCallback(
+    (e: React.DragEvent) => {
+      e.preventDefault();
+      setDragging(false);
+      const file = e.dataTransfer.files[0];
+      if (file) handleFileUpload(file);
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    []
+  );
+
+  const handleDragOver = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    setDragging(true);
+  }, []);
+
+  const handleDragLeave = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    setDragging(false);
+  }, []);
 
   return (
     <div className="space-y-4">
@@ -110,16 +132,28 @@ export default function AnswerKeyUploader({ onAnswerKeyLoaded, hasHighlighting }
         ) : (
           <div
             onClick={() => inputRef.current?.click()}
+            onDrop={handleDrop}
+            onDragOver={handleDragOver}
+            onDragLeave={handleDragLeave}
             className={`border-2 border-dashed rounded-lg p-6 text-center cursor-pointer transition-colors ${
-              parsing ? "border-gray-300 bg-gray-50" : "border-navy-200 hover:border-navy-300 bg-navy-50/30"
+              parsing
+                ? "border-gray-300 bg-gray-50"
+                : dragging
+                  ? "border-teal-400 bg-teal-50"
+                  : "border-navy-200 hover:border-navy-300 bg-navy-50/30"
             }`}
           >
             {parsing ? (
               <p className="text-navy-500 text-sm">Parsing document...</p>
+            ) : dragging ? (
+              <>
+                <Upload className="mx-auto mb-2 text-teal-500" size={28} />
+                <p className="text-teal-600 font-medium text-sm">Drop file here</p>
+              </>
             ) : (
               <>
                 <Upload className="mx-auto mb-2 text-navy-400" size={28} />
-                <p className="text-navy-500 font-medium text-sm">Upload survey assessment document (.docx)</p>
+                <p className="text-navy-500 font-medium text-sm">Drag & drop or click to upload survey assessment document (.docx)</p>
                 <p className="text-navy-300 text-xs mt-1">Extracts learning objectives, categories, and answer keys</p>
               </>
             )}
