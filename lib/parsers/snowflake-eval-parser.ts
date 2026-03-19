@@ -251,14 +251,14 @@ function classifyEvalColumn(h: { col: number; text: string }): EvalColumn | null
     return { col: h.col, text: cleanText, evalCategory: "practice_profile", isMultiSelect: false };
   }
 
+  // Barriers — check BEFORE intended changes (barrier text often contains "implement")
+  if (/barrier|obstacle|challenge/i.test(cleanLower)) {
+    return { col: h.col, text: cleanText, evalCategory: "barrier", isMultiSelect: true };
+  }
+
   // Intended changes
   if (/change|implement|intend|will\s*you/i.test(cleanLower)) {
     return { col: h.col, text: cleanText, evalCategory: "intended_change", isMultiSelect: true };
-  }
-
-  // Barriers
-  if (/barrier|obstacle|challenge/i.test(cleanLower)) {
-    return { col: h.col, text: cleanText, evalCategory: "barrier", isMultiSelect: true };
   }
 
   // Bias / new content / other eval questions
