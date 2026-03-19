@@ -14,10 +14,18 @@ export interface QuestionPerformance {
 }
 
 export interface ConfidenceSummary {
-  preAvg: number | null;
-  postAvg: number | null;
-  change: number | null;
-  respondents: number;
+  /** % of pre-test respondents who chose Moderately/Very/Extremely (3-5) */
+  preHighPct: number | null;
+  /** % of post-test respondents who chose Moderately/Very/Extremely (3-5) */
+  postHighPct: number | null;
+  /** Percentage point change from pre to post */
+  changePct: number | null;
+  /** % of learners who moved from Not at all/Somewhat (1-2) on pre to Moderately/Very/Extremely (3-5) on post */
+  improvedPct: number | null;
+  /** Count of learners who improved */
+  improvedCount: number;
+  preRespondents: number;
+  postRespondents: number;
 }
 
 export interface CategoryPerformance {
@@ -109,7 +117,10 @@ export function computeImportSummary(
   const questionPerformance = computeQuestionPerformance(assessmentQuestions, learners);
 
   // ── Confidence summary ──
-  const confidence = computeConfidenceSummary(learners);
+  const confidenceQNums = new Set(
+    questions.filter((q) => q.questionType === "confidence").map((q) => q.questionNumber)
+  );
+  const confidence = computeConfidenceSummary(learners, confidenceQNums);
 
   // ── Category performance ──
   const categoryPerformance = computeCategoryPerformance(assessmentQuestions, learners);
@@ -134,12 +145,14 @@ export function computeImportSummary(
   const intendedChanges = computeEvalFrequency(learners, "intended_change");
   const barriers = computeEvalFrequency(learners, "barrier");
 
-  // ── Overall score summary ──
+  // ── Overall score summary (2 decimal places) ──
   const preScores = learners.map((l) => l.preScore).filter((s): s is number => s != null);
   const postScores = learners.map((l) => l.postScore).filter((s): s is number => s != null);
-  const avgPreScore = preScores.length > 0 ? avg(preScores) : null;
-  const avgPostScore = postScores.length > 0 ? avg(postScores) : null;
-  const avgScoreChange = avgPreScore != null && avgPostScore != null ? avgPostScore - avgPreScore : null;
+  const avgPreScore = preScores.length > 0 ? Math.round(avg(preScores) * 100) / 100 : null;
+  const avgPostScore = postScores.length > 0 ? Math.round(avg(postScores) * 100) / 100 : null;
+  const avgScoreChange = avgPreScore != null && avgPostScore != null
+    ? Math.round((avgPostScore - avgPreScore) * 100) / 100
+    : null;
 
   return {
     learnerCount,
@@ -192,9 +205,9 @@ function computeQuestionPerformance(
       }
     }
 
-    const prePct = preTotal > 0 ? pct(preCorrect, preTotal) : null;
-    const postPct = postTotal > 0 ? pct(postCorrect, postTotal) : null;
-    const changePct = prePct != null && postPct != null ? Math.round((postPct - prePct) * 10) / 10 : null;
+    const prePct = preTotal > 0 ? Math.round((preCorrect / preTotal) * 100) : null;
+    const postPct = postTotal > 0 ? Math.round((postCorrect / postTotal) * 100) : null;
+    const changePct = prePct != null && postPct != null ? postPct - prePct : null;
 
     return {
       questionNumber: q.questionNumber,
@@ -210,17 +223,75 @@ function computeQuestionPerformance(
 }
 
 function computeConfidenceSummary(
-  learners: ParsedActivityData["learners"]
+  learners: ParsedActivityData["learners"],
+  confidenceQNums: Set<number>
 ): ConfidenceSummary {
-  const preVals = learners.map((l) => l.preConfidenceAvg).filter((v): v is number => v != null);
-  const postVals = learners.map((l) => l.postConfidenceAvg).filter((v): v is number => v != null);
-  const respondents = Math.max(preVals.length, postVals.length);
+  // "High confidence" = Moderately (3), Very (4), Extremely (5)
+  // "Low confidence" = Not at all (1), Somewhat (2)
+  let preHighCount = 0;
+  let preTotal = 0;
+  let postHighCount = 0;
+  let postTotal = 0;
+  let improvedCount = 0;
+  let learnersWithBoth = 0;
 
-  const preAvg = preVals.length > 0 ? Math.round(avg(preVals) * 100) / 100 : null;
-  const postAvg = postVals.length > 0 ? Math.round(avg(postVals) * 100) / 100 : null;
-  const change = preAvg != null && postAvg != null ? Math.round((postAvg - preAvg) * 100) / 100 : null;
+  for (const learner of learners) {
+    const preValues: number[] = [];
+    const postValues: number[] = [];
 
-  return { preAvg, postAvg, change, respondents };
+    // Collect confidence responses only (filter by confidence question numbers)
+    for (const r of learner.responses) {
+      if (r.numericValue == null) continue;
+      if (confidenceQNums.size > 0 && !confidenceQNums.has(r.questionNumber)) continue;
+      if (r.phase === "pre") preValues.push(r.numericValue);
+      else postValues.push(r.numericValue);
+    }
+
+    // Fall back to aggregate scores if no individual responses
+    if (preValues.length === 0 && learner.preConfidenceAvg != null) {
+      preValues.push(learner.preConfidenceAvg);
+    }
+    if (postValues.length === 0 && learner.postConfidenceAvg != null) {
+      postValues.push(learner.postConfidenceAvg);
+    }
+
+    const preAvg = preValues.length > 0 ? avg(preValues) : null;
+    const postAvg = postValues.length > 0 ? avg(postValues) : null;
+
+    if (preAvg != null) {
+      preTotal++;
+      if (preAvg >= 3) preHighCount++;
+    }
+    if (postAvg != null) {
+      postTotal++;
+      if (postAvg >= 3) postHighCount++;
+    }
+
+    // Track improvement: low pre (1-2) → high post (3-5)
+    if (preAvg != null && postAvg != null) {
+      learnersWithBoth++;
+      if (preAvg < 3 && postAvg >= 3) {
+        improvedCount++;
+      }
+    }
+  }
+
+  const preHighPct = preTotal > 0 ? pct(preHighCount, preTotal) : null;
+  const postHighPct = postTotal > 0 ? pct(postHighCount, postTotal) : null;
+  const changePct = preHighPct != null && postHighPct != null
+    ? Math.round((postHighPct - preHighPct) * 10) / 10
+    : null;
+  const improvedPct = learnersWithBoth > 0 ? pct(improvedCount, learnersWithBoth) : null;
+
+  return {
+    preHighPct,
+    postHighPct,
+    changePct,
+    improvedPct,
+    improvedCount,
+    preRespondents: preTotal,
+    postRespondents: postTotal,
+  };
 }
 
 function computeCategoryPerformance(

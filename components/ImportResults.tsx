@@ -1,6 +1,5 @@
 "use client";
 
-import { useMemo } from "react";
 import type { ImportSummary } from "@/lib/analytics/import-summary";
 
 interface ImportResultsProps {
@@ -10,14 +9,9 @@ interface ImportResultsProps {
   onReset: () => void;
 }
 
-function formatPct(val: number | null): string {
+function formatPct(val: number | null, decimals = 0): string {
   if (val == null) return "—";
-  return `${val}%`;
-}
-
-function formatNum(val: number | null, decimals = 1): string {
-  if (val == null) return "—";
-  return val.toFixed(decimals);
+  return `${val.toFixed(decimals)}%`;
 }
 
 function changeColor(val: number | null): string {
@@ -86,22 +80,22 @@ export default function ImportResults({ summary, errors, warnings, onReset }: Im
         </div>
       </div>
 
-      {/* Overall Score Summary */}
+      {/* Overall Score Summary — 2 decimal places */}
       {summary.avgPreScore != null && (
         <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
           <h3 className="text-sm font-semibold text-navy-600 mb-3">Overall Assessment Performance</h3>
           <div className="grid grid-cols-3 gap-4">
             <div className="text-center">
-              <div className="text-2xl font-bold text-navy-700">{formatPct(summary.avgPreScore)}</div>
+              <div className="text-2xl font-bold text-navy-700">{formatPct(summary.avgPreScore, 2)}</div>
               <div className="text-xs text-navy-500">Avg Pre-Test</div>
             </div>
             <div className="text-center">
-              <div className="text-2xl font-bold text-navy-700">{formatPct(summary.avgPostScore)}</div>
+              <div className="text-2xl font-bold text-navy-700">{formatPct(summary.avgPostScore, 2)}</div>
               <div className="text-xs text-navy-500">Avg Post-Test</div>
             </div>
             <div className="text-center">
               <div className={`text-2xl font-bold ${changeColor(summary.avgScoreChange)}`}>
-                {changePrefix(summary.avgScoreChange)}{formatPct(summary.avgScoreChange)}
+                {changePrefix(summary.avgScoreChange)}{formatPct(summary.avgScoreChange, 2)}
               </div>
               <div className="text-xs text-navy-500">Change</div>
             </div>
@@ -109,7 +103,7 @@ export default function ImportResults({ summary, errors, warnings, onReset }: Im
         </div>
       )}
 
-      {/* Per-Question Performance */}
+      {/* Per-Question Performance — whole numbers */}
       {summary.questionPerformance.length > 0 && (
         <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
           <h3 className="text-sm font-semibold text-navy-600 mb-3">Question-Level Pre vs. Post Performance</h3>
@@ -119,9 +113,7 @@ export default function ImportResults({ summary, errors, warnings, onReset }: Im
                 <tr className="border-b border-gray-200">
                   <th className="text-left py-2 px-2 text-navy-500 font-medium">Q#</th>
                   <th className="text-left py-2 px-2 text-navy-500 font-medium">Question</th>
-                  {summary.questionPerformance[0]?.questionCategory && (
-                    <th className="text-left py-2 px-2 text-navy-500 font-medium">Category</th>
-                  )}
+                  <th className="text-left py-2 px-2 text-navy-500 font-medium">Category</th>
                   <th className="text-right py-2 px-2 text-navy-500 font-medium">Pre</th>
                   <th className="text-right py-2 px-2 text-navy-500 font-medium">Post</th>
                   <th className="text-right py-2 px-2 text-navy-500 font-medium">Change</th>
@@ -134,9 +126,7 @@ export default function ImportResults({ summary, errors, warnings, onReset }: Im
                     <td className="py-2 px-2 text-navy-600 max-w-xs truncate" title={q.questionText}>
                       {q.questionText.length > 80 ? q.questionText.slice(0, 80) + "..." : q.questionText}
                     </td>
-                    {summary.questionPerformance[0]?.questionCategory && (
-                      <td className="py-2 px-2 text-navy-500 text-xs">{q.questionCategory ?? "—"}</td>
-                    )}
+                    <td className="py-2 px-2 text-navy-500 text-xs">{q.questionCategory ?? "—"}</td>
                     <td className="py-2 px-2 text-right text-navy-600">{formatPct(q.preCorrectPct)}</td>
                     <td className="py-2 px-2 text-right text-navy-600">{formatPct(q.postCorrectPct)}</td>
                     <td className={`py-2 px-2 text-right font-medium ${changeColor(q.changePct)}`}>
@@ -150,29 +140,36 @@ export default function ImportResults({ summary, errors, warnings, onReset }: Im
         </div>
       )}
 
-      {/* Confidence Summary */}
-      {summary.confidence.respondents > 0 && (
+      {/* Confidence Summary — % selecting Moderately/Very/Extremely */}
+      {summary.confidence.preRespondents > 0 && (
         <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
-          <h3 className="text-sm font-semibold text-navy-600 mb-3">Confidence (1–5 Scale)</h3>
-          <div className="grid grid-cols-3 gap-4">
+          <h3 className="text-sm font-semibold text-navy-600 mb-3">Confidence</h3>
+          <p className="text-xs text-navy-400 mb-3">
+            % of learners selecting Moderately, Very, or Extremely Confident
+          </p>
+          <div className="grid grid-cols-3 gap-4 mb-4">
             <div className="text-center">
-              <div className="text-2xl font-bold text-navy-700">{formatNum(summary.confidence.preAvg)}</div>
-              <div className="text-xs text-navy-500">Pre-Confidence</div>
+              <div className="text-2xl font-bold text-navy-700">{formatPct(summary.confidence.preHighPct)}</div>
+              <div className="text-xs text-navy-500">Pre-Activity</div>
+              <div className="text-[10px] text-navy-400">{summary.confidence.preRespondents} respondents</div>
             </div>
             <div className="text-center">
-              <div className="text-2xl font-bold text-navy-700">{formatNum(summary.confidence.postAvg)}</div>
-              <div className="text-xs text-navy-500">Post-Confidence</div>
+              <div className="text-2xl font-bold text-navy-700">{formatPct(summary.confidence.postHighPct)}</div>
+              <div className="text-xs text-navy-500">Post-Activity</div>
+              <div className="text-[10px] text-navy-400">{summary.confidence.postRespondents} respondents</div>
             </div>
             <div className="text-center">
-              <div className={`text-2xl font-bold ${changeColor(summary.confidence.change)}`}>
-                {changePrefix(summary.confidence.change)}{formatNum(summary.confidence.change)}
+              <div className={`text-2xl font-bold ${changeColor(summary.confidence.changePct)}`}>
+                {changePrefix(summary.confidence.changePct)}{formatPct(summary.confidence.changePct)}
               </div>
               <div className="text-xs text-navy-500">Change</div>
             </div>
           </div>
-          <div className="text-xs text-navy-400 mt-2 text-center">
-            Based on {summary.confidence.respondents} respondents
-          </div>
+          {summary.confidence.improvedPct != null && (
+            <div className="p-2 bg-green-50 border border-green-200 rounded-lg text-sm text-green-700">
+              <span className="font-medium">{formatPct(summary.confidence.improvedPct)}</span> of learners who rated their confidence as Not at all / Somewhat on the pre-test shifted to Moderately / Very / Extremely on the post-test ({summary.confidence.improvedCount} learners)
+            </div>
+          )}
         </div>
       )}
 
