@@ -1,13 +1,15 @@
 "use client";
 
-import type { ParsedActivityData } from "@/lib/parsers/types";
-import { Users, HelpCircle, AlertTriangle, XCircle, FileText } from "lucide-react";
+import type { ParsedActivityData, MergeResult } from "@/lib/parsers/types";
+import { formatSourceLabel } from "@/lib/parsers/merge-sources";
+import { Users, HelpCircle, AlertTriangle, XCircle, FileText, Link2 } from "lucide-react";
 
 interface ParsePreviewProps {
   parsed: ParsedActivityData;
+  mergeResult?: MergeResult;
 }
 
-export default function ParsePreview({ parsed }: ParsePreviewProps) {
+export default function ParsePreview({ parsed, mergeResult }: ParsePreviewProps) {
   const assessmentQuestions = parsed.questions.filter((q) => q.questionType === "assessment");
   const confidenceQuestions = parsed.questions.filter((q) => q.questionType === "confidence");
   const evaluationQuestions = parsed.questions.filter((q) => q.questionType === "evaluation");
@@ -17,6 +19,8 @@ export default function ParsePreview({ parsed }: ParsePreviewProps) {
   const scoredQuestions = assessmentQuestions.filter((q) => q.correctAnswer);
   const exclusionWarnings = parsed.warnings.filter((w) => w.type === "exclusion");
   const dataWarnings = parsed.warnings.filter((w) => w.type !== "exclusion");
+
+  const isMerged = mergeResult && mergeResult.sourceBreakdown.length > 1;
 
   return (
     <div className="space-y-4">
@@ -38,9 +42,9 @@ export default function ParsePreview({ parsed }: ParsePreviewProps) {
         </div>
         <div className="bg-navy-50 rounded-lg p-3 text-center">
           <div className="text-2xl font-bold text-navy-700">
-            {parsed.learners.reduce((sum, l) => sum + l.responses.length, 0)}
+            {parsed.learners.reduce((sum, l) => sum + l.responses.length + l.evaluationResponses.length, 0)}
           </div>
-          <div className="text-xs text-navy-500 mt-1">Responses</div>
+          <div className="text-xs text-navy-500 mt-1">Total Responses</div>
         </div>
         {parsed.excludedCount > 0 && (
           <div className="bg-amber-50 rounded-lg p-3 text-center">
@@ -52,19 +56,71 @@ export default function ParsePreview({ parsed }: ParsePreviewProps) {
         )}
       </div>
 
-      {/* Source info */}
-      <div className="bg-white rounded-lg border border-gray-100 p-4">
-        <div className="flex items-center gap-2 mb-3">
-          <FileText size={16} className="text-navy-400" />
-          <span className="text-sm font-medium text-navy-700">Source: {formatSource(parsed.source)}</span>
-        </div>
-        <div className="text-sm text-navy-500">{parsed.sourceFileName}</div>
-        {parsed.suggestedActivityName && (
-          <div className="text-sm text-navy-400 mt-1">
-            Suggested name: <span className="font-medium">{parsed.suggestedActivityName}</span>
+      {/* Merge breakdown (when multiple sources) */}
+      {isMerged && mergeResult && (
+        <div className="bg-purple-50 border border-purple-200 rounded-lg p-4">
+          <div className="flex items-center gap-2 mb-3">
+            <Link2 size={16} className="text-purple-600" />
+            <h3 className="text-sm font-semibold text-purple-700">Cross-Platform Merge</h3>
           </div>
-        )}
-      </div>
+
+          <div className="space-y-2 mb-3">
+            {mergeResult.sourceBreakdown.map((sb, i) => (
+              <div key={i} className="flex items-center justify-between text-sm">
+                <div className="flex items-center gap-2">
+                  <FileText size={12} className="text-navy-400" />
+                  <span className="text-navy-600">{formatSourceLabel(sb.source)}</span>
+                  <span className="text-navy-400 text-xs truncate max-w-[200px]">({sb.fileName})</span>
+                </div>
+                <span className="text-navy-500 text-xs">
+                  {sb.learnerCount} learners, {sb.questionCount} questions
+                </span>
+              </div>
+            ))}
+          </div>
+
+          <div className="flex gap-4 text-xs">
+            {mergeResult.matchedCount > 0 && (
+              <span className="text-teal-600 font-medium">
+                {mergeResult.matchedCount} email matches
+              </span>
+            )}
+            {mergeResult.assessmentOnlyCount > 0 && (
+              <span className="text-navy-500">
+                {mergeResult.assessmentOnlyCount} assessment-only
+              </span>
+            )}
+            {mergeResult.evalOnlyCount > 0 && (
+              <span className="text-amber-600">
+                {mergeResult.evalOnlyCount} eval-only
+              </span>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Source info (single source) */}
+      {!isMerged && (
+        <div className="bg-white rounded-lg border border-gray-100 p-4">
+          <div className="flex items-center gap-2 mb-3">
+            <FileText size={16} className="text-navy-400" />
+            <span className="text-sm font-medium text-navy-700">Source: {formatSourceLabel(parsed.source)}</span>
+          </div>
+          <div className="text-sm text-navy-500">{parsed.sourceFileName}</div>
+          {parsed.suggestedActivityName && (
+            <div className="text-sm text-navy-400 mt-1">
+              Suggested name: <span className="font-medium">{parsed.suggestedActivityName}</span>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Suggested name (for merged) */}
+      {isMerged && parsed.suggestedActivityName && (
+        <div className="text-sm text-navy-400">
+          Suggested name: <span className="font-medium text-navy-600">{parsed.suggestedActivityName}</span>
+        </div>
+      )}
 
       {/* Question breakdown */}
       <div className="bg-white rounded-lg border border-gray-100 p-4">
@@ -144,15 +200,4 @@ export default function ParsePreview({ parsed }: ParsePreviewProps) {
       )}
     </div>
   );
-}
-
-function formatSource(source: string): string {
-  const labels: Record<string, string> = {
-    array: "Array Report",
-    globalmeet: "GlobalMeet",
-    pigeonhole: "Pigeonhole",
-    snowflake_eval: "Live Evaluation Data (Snowflake)",
-    snowflake_ondemand: "On-Demand Data (Snowflake)",
-  };
-  return labels[source] || source;
 }

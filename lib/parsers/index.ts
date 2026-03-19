@@ -5,6 +5,7 @@ export { parsePigeonholeFiles } from "./pigeonhole-parser";
 export { parseSnowflakeEvalFile } from "./snowflake-eval-parser";
 export { parseSnowflakeOnDemandFile } from "./snowflake-ondemand-parser";
 export { extractAnswerKeyFromHighlighting, applyAnswerKey } from "./answer-key";
+export { mergeSources, classifyFileRole, formatSourceLabel } from "./merge-sources";
 export { likertToNumeric, confidenceBinary, confidenceChange, confidenceAverage, computeAssessmentScore } from "./confidence-scorer";
 export type {
   DataSource,
@@ -18,4 +19,8 @@ export type {
   ParseWarning,
   AnswerKeyEntry,
   DetectionResult,
+  DetectedFile,
+  FileRole,
+  MergeResult,
+  SourceBreakdown,
 } from "./types";

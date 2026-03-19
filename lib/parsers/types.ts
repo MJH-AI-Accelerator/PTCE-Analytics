@@ -87,6 +87,44 @@ export interface ParsedActivityData {
   excludedCount: number;
   /** Raw metadata from the file (event title, dates, etc.) */
   metadata: Record<string, string>;
+  /** When multiple sources were merged, tracks the originals */
+  mergedSources?: DataSource[];
+}
+
+/** Role a file plays in a multi-file program import */
+export type FileRole = "assessment" | "evaluation" | "standalone";
+
+/** A file that has been uploaded and detected */
+export interface DetectedFile {
+  id: string;
+  fileName: string;
+  buffer: ArrayBuffer;
+  detection: DetectionResult | null;
+  role: FileRole;
+  /** For pigeonhole: distinguish pre vs post */
+  subRole?: "pre" | "post" | null;
+  status: "pending" | "parsed" | "error";
+  parsed?: ParsedActivityData;
+  error?: string;
+}
+
+/** Summary of merge results per source */
+export interface SourceBreakdown {
+  source: DataSource;
+  fileName: string;
+  learnerCount: number;
+  questionCount: number;
+}
+
+/** Result of merging multiple ParsedActivityData */
+export interface MergeResult {
+  merged: ParsedActivityData;
+  sourceBreakdown: SourceBreakdown[];
+  /** Learners found in one source but not another */
+  matchedCount: number;
+  assessmentOnlyCount: number;
+  evalOnlyCount: number;
+  warnings: ParseWarning[];
 }
 
 /** Answer key entry — maps question text or number to the correct answer */

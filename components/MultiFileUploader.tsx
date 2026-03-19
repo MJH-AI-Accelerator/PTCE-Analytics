@@ -1,77 +1,121 @@
 "use client";
 
 import { useCallback, useRef } from "react";
-import { Upload, X, FileText } from "lucide-react";
-
-interface FileEntry {
-  buffer: ArrayBuffer;
-  name: string;
-}
+import { Upload, X, FileText, CheckCircle, AlertCircle } from "lucide-react";
+import type { DetectedFile } from "@/lib/parsers/types";
+import { detectSource } from "@/lib/parsers/detect-source";
+import { classifyFileRole, formatSourceLabel } from "@/lib/parsers/merge-sources";
 
 interface MultiFileUploaderProps {
-  files: FileEntry[];
-  onFilesChange: (files: FileEntry[]) => void;
-  maxFiles?: number;
-  label?: string;
-  hint?: string;
+  files: DetectedFile[];
+  onFilesChange: (files: DetectedFile[]) => void;
 }
 
-export default function MultiFileUploader({
-  files,
-  onFilesChange,
-  maxFiles = 1,
-  label = "Upload File",
-  hint = "Supports .xlsx, .xls, .csv",
-}: MultiFileUploaderProps) {
+export default function MultiFileUploader({ files, onFilesChange }: MultiFileUploaderProps) {
   const inputRef = useRef<HTMLInputElement>(null);
 
-  const handleFile = useCallback(
+  const addFile = useCallback(
     (file: File) => {
       const reader = new FileReader();
       reader.onload = (e) => {
         if (e.target?.result) {
-          const entry: FileEntry = { buffer: e.target.result as ArrayBuffer, name: file.name };
-          if (maxFiles === 1) {
-            onFilesChange([entry]);
-          } else {
-            onFilesChange([...files.slice(0, maxFiles - 1), entry]);
-          }
+          const buffer = e.target.result as ArrayBuffer;
+          const detection = detectSource(buffer);
+          const role = detection ? classifyFileRole(detection.source) : "assessment";
+
+          const entry: DetectedFile = {
+            id: crypto.randomUUID(),
+            fileName: file.name,
+            buffer,
+            detection,
+            role,
+            status: "pending",
+          };
+          onFilesChange([...files, entry]);
         }
       };
       reader.readAsArrayBuffer(file);
     },
-    [files, maxFiles, onFilesChange]
+    [files, onFilesChange]
   );
 
   const handleDrop = useCallback(
     (e: React.DragEvent) => {
       e.preventDefault();
-      const droppedFiles = Array.from(e.dataTransfer.files);
-      for (const file of droppedFiles.slice(0, maxFiles - files.length)) {
-        handleFile(file);
+      for (const file of Array.from(e.dataTransfer.files)) {
+        addFile(file);
       }
     },
-    [handleFile, maxFiles, files.length]
+    [addFile]
   );
 
-  const removeFile = (index: number) => {
-    onFilesChange(files.filter((_, i) => i !== index));
+  const removeFile = (id: string) => {
+    onFilesChange(files.filter((f) => f.id !== id));
+  };
+
+  const roleLabel = (role: string) => {
+    switch (role) {
+      case "assessment": return "Assessment";
+      case "evaluation": return "Evaluation";
+      case "standalone": return "Standalone";
+      default: return role;
+    }
+  };
+
+  const roleBadgeColor = (role: string) => {
+    switch (role) {
+      case "assessment": return "bg-teal-100 text-teal-700";
+      case "evaluation": return "bg-purple-100 text-purple-700";
+      case "standalone": return "bg-navy-100 text-navy-700";
+      default: return "bg-gray-100 text-gray-700";
+    }
   };
 
   return (
     <div className="space-y-3">
-      <label className="block text-sm font-medium text-navy-600">{label}</label>
+      <div className="flex items-center justify-between">
+        <label className="block text-sm font-medium text-navy-600">
+          Upload all files for this program
+        </label>
+        <span className="text-xs text-navy-400">{files.length} file{files.length !== 1 ? "s" : ""} added</span>
+      </div>
 
-      {/* Uploaded files */}
+      {/* Uploaded files with detection results */}
       {files.length > 0 && (
         <div className="space-y-2">
-          {files.map((f, i) => (
-            <div key={i} className="flex items-center gap-3 p-3 bg-teal-50 border border-teal-200 rounded-lg">
-              <FileText size={18} className="text-teal-600 shrink-0" />
-              <span className="text-sm text-navy-700 flex-1 truncate">{f.name}</span>
+          {files.map((f) => (
+            <div
+              key={f.id}
+              className="flex items-center gap-3 p-3 bg-white border border-gray-200 rounded-lg"
+            >
+              <FileText size={18} className="text-navy-400 shrink-0" />
+              <div className="flex-1 min-w-0">
+                <div className="text-sm text-navy-700 truncate">{f.fileName}</div>
+                <div className="flex items-center gap-2 mt-1">
+                  {f.detection ? (
+                    <>
+                      <CheckCircle size={12} className="text-teal-500" />
+                      <span className="text-xs text-navy-500">
+                        {formatSourceLabel(f.detection.source)}
+                      </span>
+                      <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium ${roleBadgeColor(f.role)}`}>
+                        {roleLabel(f.role)}
+                      </span>
+                      {f.detection.confidence !== "high" && (
+                        <span className="text-[10px] text-amber-600">({f.detection.confidence} confidence)</span>
+                      )}
+                    </>
+                  ) : (
+                    <>
+                      <AlertCircle size={12} className="text-amber-500" />
+                      <span className="text-xs text-amber-600">Could not detect source type</span>
+                    </>
+                  )}
+                </div>
+              </div>
               <button
-                onClick={() => removeFile(i)}
-                className="text-navy-400 hover:text-red-500 transition-colors"
+                onClick={() => removeFile(f.id)}
+                className="text-navy-300 hover:text-red-500 transition-colors shrink-0"
               >
                 <X size={16} />
               </button>
@@ -81,32 +125,40 @@ export default function MultiFileUploader({
       )}
 
       {/* Drop zone */}
-      {files.length < maxFiles && (
-        <div
-          onDrop={handleDrop}
-          onDragOver={(e) => e.preventDefault()}
-          onClick={() => inputRef.current?.click()}
-          className="border-2 border-dashed border-gray-300 rounded-lg p-8 text-center cursor-pointer hover:border-teal-400 transition-colors"
-        >
-          <Upload className="mx-auto mb-3 text-navy-300" size={32} />
-          <p className="text-navy-500 font-medium text-sm">
-            {files.length === 0 ? "Drag & drop a file here, or click to browse" : "Add another file"}
-          </p>
-          <p className="text-navy-300 text-xs mt-1">{hint}</p>
-          <input
-            ref={inputRef}
-            type="file"
-            accept=".xlsx,.xls,.csv"
-            className="hidden"
-            onChange={(e) => {
-              const file = e.target.files?.[0];
-              if (file) handleFile(file);
-            }}
-          />
-        </div>
-      )}
+      <div
+        onDrop={handleDrop}
+        onDragOver={(e) => e.preventDefault()}
+        onClick={() => inputRef.current?.click()}
+        className="border-2 border-dashed border-gray-300 rounded-lg p-8 text-center cursor-pointer hover:border-teal-400 transition-colors"
+      >
+        <Upload className="mx-auto mb-3 text-navy-300" size={32} />
+        <p className="text-navy-500 font-medium text-sm">
+          {files.length === 0
+            ? "Drag & drop files here, or click to browse"
+            : "Add more files"}
+        </p>
+        <p className="text-navy-300 text-xs mt-1">
+          Drop all files for this program — Array, GlobalMeet, Pigeonhole, Snowflake
+        </p>
+        <input
+          ref={inputRef}
+          type="file"
+          accept=".xlsx,.xls,.csv"
+          multiple
+          className="hidden"
+          onChange={(e) => {
+            if (e.target.files) {
+              for (const file of Array.from(e.target.files)) {
+                addFile(file);
+              }
+            }
+            // Reset so the same file can be re-selected
+            e.target.value = "";
+          }}
+        />
+      </div>
     </div>
   );
 }
 
-export type { FileEntry };
+export type { DetectedFile };

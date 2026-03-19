@@ -1,24 +1,23 @@
 "use client";
 
 import { useState, useCallback } from "react";
-import SourceSelector from "@/components/SourceSelector";
-import MultiFileUploader, { type FileEntry } from "@/components/MultiFileUploader";
+import MultiFileUploader from "@/components/MultiFileUploader";
 import AnswerKeyUploader from "@/components/AnswerKeyUploader";
 import ParsePreview from "@/components/ParsePreview";
-import { detectSource } from "@/lib/parsers/detect-source";
 import { parseArrayFile } from "@/lib/parsers/array-parser";
 import { parseGlobalMeetFile, mergeGlobalMeetFiles } from "@/lib/parsers/globalmeet-parser";
 import { parsePigeonholeFiles } from "@/lib/parsers/pigeonhole-parser";
 import { parseSnowflakeEvalFile } from "@/lib/parsers/snowflake-eval-parser";
 import { parseSnowflakeOnDemandFile } from "@/lib/parsers/snowflake-ondemand-parser";
+import { mergeSources } from "@/lib/parsers/merge-sources";
 import { importParsedData } from "./actions";
-import type { DataSource, ParsedActivityData, AnswerKeyEntry } from "@/lib/parsers/types";
+import type { DetectedFile, ParsedActivityData, AnswerKeyEntry, MergeResult } from "@/lib/parsers/types";
 import type { ActivityMetadata } from "@/lib/ingestion/pipeline";
 
-type Step = "source" | "upload" | "answer-key" | "preview" | "activity" | "results";
+type Step = "upload" | "answer-key" | "preview" | "activity" | "results";
 
+const STEPS: Step[] = ["upload", "answer-key", "preview", "activity", "results"];
 const STEP_LABELS: Record<Step, string> = {
-  source: "Source",
   upload: "Upload",
   "answer-key": "Answer Key",
   preview: "Preview",
@@ -26,14 +25,11 @@ const STEP_LABELS: Record<Step, string> = {
   results: "Results",
 };
 
-const STEPS: Step[] = ["source", "upload", "answer-key", "preview", "activity", "results"];
-
 export default function DataImport() {
-  const [step, setStep] = useState<Step>("source");
-  const [selectedSource, setSelectedSource] = useState<DataSource | "auto">("auto");
-  const [detectedSource, setDetectedSource] = useState<DataSource | null>(null);
-  const [files, setFiles] = useState<FileEntry[]>([]);
+  const [step, setStep] = useState<Step>("upload");
+  const [files, setFiles] = useState<DetectedFile[]>([]);
   const [parsed, setParsed] = useState<ParsedActivityData | null>(null);
+  const [mergeResult, setMergeResult] = useState<MergeResult | null>(null);
   const [hasHighlighting, setHasHighlighting] = useState(false);
   const [activity, setActivity] = useState<ActivityMetadata>({
     activity_id: "",
@@ -57,87 +53,100 @@ export default function DataImport() {
     warnings: string[];
   } | null>(null);
 
-  const effectiveSource = selectedSource === "auto" ? detectedSource : selectedSource;
-  const needsTwoFiles = effectiveSource === "pigeonhole";
-  const maxFiles = needsTwoFiles ? 2 : (effectiveSource === "globalmeet" ? 2 : 1);
-
-  const handleFilesChange = useCallback((newFiles: FileEntry[]) => {
-    setFiles(newFiles);
-
-    // Auto-detect source from first file if in auto mode
-    if (selectedSource === "auto" && newFiles.length > 0) {
-      const detection = detectSource(newFiles[0].buffer);
-      if (detection) {
-        setDetectedSource(detection.source);
-      }
-    }
-  }, [selectedSource]);
-
   const handleParse = useCallback(() => {
-    if (!effectiveSource || files.length === 0) return;
+    if (files.length === 0) return;
 
     try {
-      let result: ParsedActivityData;
+      const parsedFiles: ParsedActivityData[] = [];
 
-      switch (effectiveSource) {
-        case "array":
-          result = parseArrayFile(files[0].buffer, files[0].name);
-          setHasHighlighting(result.questions.some((q) => q.correctAnswer != null));
-          break;
-        case "globalmeet":
-          if (files.length === 2) {
-            const parsed1 = parseGlobalMeetFile(files[0].buffer, files[0].name);
-            const parsed2 = parseGlobalMeetFile(files[1].buffer, files[1].name);
-            result = mergeGlobalMeetFiles([parsed1, parsed2]);
-          } else {
-            result = parseGlobalMeetFile(files[0].buffer, files[0].name);
-          }
-          setHasHighlighting(false);
-          break;
-        case "pigeonhole":
-          if (files.length < 2) {
-            alert("Pigeonhole requires both pretest and posttest files");
-            return;
-          }
-          result = parsePigeonholeFiles(files[0].buffer, files[1].buffer, files[0].name, files[1].name);
-          setHasHighlighting(false);
-          break;
-        case "snowflake_eval":
-          result = parseSnowflakeEvalFile(files[0].buffer, files[0].name);
-          setHasHighlighting(false);
-          break;
-        case "snowflake_ondemand":
-          result = parseSnowflakeOnDemandFile(files[0].buffer, files[0].name);
-          setHasHighlighting(false);
-          break;
-        default:
-          return;
+      // Group files by detected source
+      const pigeonholeFiles = files.filter((f) => f.detection?.source === "pigeonhole");
+      const globalmeetFiles = files.filter((f) => f.detection?.source === "globalmeet");
+      const otherFiles = files.filter(
+        (f) => f.detection?.source !== "pigeonhole" && f.detection?.source !== "globalmeet"
+      );
+
+      // Parse Pigeonhole files (need pre + post pairing)
+      if (pigeonholeFiles.length >= 2) {
+        const result = parsePigeonholeFiles(
+          pigeonholeFiles[0].buffer,
+          pigeonholeFiles[1].buffer,
+          pigeonholeFiles[0].fileName,
+          pigeonholeFiles[1].fileName
+        );
+        parsedFiles.push(result);
+      } else if (pigeonholeFiles.length === 1) {
+        // Single Pigeonhole file — parse as pre-only
+        const result = parsePigeonholeFiles(
+          pigeonholeFiles[0].buffer,
+          pigeonholeFiles[0].buffer,
+          pigeonholeFiles[0].fileName,
+          pigeonholeFiles[0].fileName
+        );
+        parsedFiles.push(result);
       }
 
-      setParsed(result);
+      // Parse GlobalMeet files (may need multi-broadcast merge)
+      if (globalmeetFiles.length > 0) {
+        const gmParsed = globalmeetFiles.map((f) =>
+          parseGlobalMeetFile(f.buffer, f.fileName)
+        );
+        if (gmParsed.length > 1) {
+          parsedFiles.push(mergeGlobalMeetFiles(gmParsed));
+        } else {
+          parsedFiles.push(gmParsed[0]);
+        }
+      }
+
+      // Parse all other files individually
+      for (const file of otherFiles) {
+        if (!file.detection) continue;
+        switch (file.detection.source) {
+          case "array":
+            parsedFiles.push(parseArrayFile(file.buffer, file.fileName));
+            break;
+          case "snowflake_eval":
+            parsedFiles.push(parseSnowflakeEvalFile(file.buffer, file.fileName));
+            break;
+          case "snowflake_ondemand":
+            parsedFiles.push(parseSnowflakeOnDemandFile(file.buffer, file.fileName));
+            break;
+        }
+      }
+
+      if (parsedFiles.length === 0) {
+        alert("No files could be parsed. Check that files are in a supported format.");
+        return;
+      }
+
+      // Merge all parsed data
+      const merge = mergeSources(parsedFiles);
+      setMergeResult(merge);
+      setParsed(merge.merged);
+
+      // Check for answer key highlighting
+      const hasHL = merge.merged.questions.some((q) => q.correctAnswer != null);
+      setHasHighlighting(hasHL);
 
       // Pre-populate activity metadata
-      if (result.suggestedActivityName) {
+      if (merge.merged.suggestedActivityName) {
         setActivity((prev) => ({
           ...prev,
-          activity_name: prev.activity_name || result.suggestedActivityName || "",
+          activity_name: prev.activity_name || merge.merged.suggestedActivityName || "",
         }));
       }
 
-      // Skip answer key step if source has highlighting or is eval-only
-      if (effectiveSource === "snowflake_eval" || (effectiveSource === "array" && result.questions.some((q) => q.correctAnswer))) {
-        setStep("preview");
-      } else {
-        setStep("answer-key");
-      }
+      // Determine if we need answer key step
+      const hasAssessment = merge.merged.questions.some((q) => q.questionType === "assessment");
+      const needsAnswerKey = hasAssessment && !hasHL;
+
+      setStep(needsAnswerKey ? "answer-key" : "preview");
     } catch (err) {
       alert(`Parse error: ${err instanceof Error ? err.message : "Unknown error"}`);
     }
-  }, [effectiveSource, files]);
+  }, [files]);
 
   const handleAnswerKeyLoaded = useCallback((_entries: AnswerKeyEntry[]) => {
-    // Answer key entries would be applied to parsed questions here
-    // For now, advance to preview
     setStep("preview");
   }, []);
 
@@ -145,7 +154,6 @@ export default function DataImport() {
     if (!parsed || !activity.activity_id || !activity.activity_name) return;
     setImporting(true);
     try {
-      // Serialize parsed data for server action (ArrayBuffers can't be sent)
       const res = await importParsedData(parsed, activity);
       setResult(res);
       setStep("results");
@@ -167,11 +175,10 @@ export default function DataImport() {
   };
 
   const resetWizard = () => {
-    setStep("source");
-    setSelectedSource("auto");
-    setDetectedSource(null);
+    setStep("upload");
     setFiles([]);
     setParsed(null);
+    setMergeResult(null);
     setHasHighlighting(false);
     setActivity({
       activity_id: "",
@@ -184,6 +191,8 @@ export default function DataImport() {
     });
     setResult(null);
   };
+
+  const detectedCount = files.filter((f) => f.detection != null).length;
 
   return (
     <div className="max-w-5xl">
@@ -210,63 +219,31 @@ export default function DataImport() {
         ))}
       </div>
 
-      {/* Step 1: Source Selection */}
-      {step === "source" && (
-        <div className="space-y-6">
-          <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
-            <SourceSelector selected={selectedSource} onChange={setSelectedSource} />
-          </div>
-          <div className="flex gap-3">
-            <button
-              onClick={() => setStep("upload")}
-              className="px-4 py-2 bg-teal-500 text-white rounded-lg text-sm hover:bg-teal-600"
-            >
-              Next: Upload Files
-            </button>
-          </div>
-        </div>
-      )}
-
-      {/* Step 2: File Upload */}
+      {/* Step 1: Upload */}
       {step === "upload" && (
         <div className="space-y-6">
           <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
-            <MultiFileUploader
-              files={files}
-              onFilesChange={handleFilesChange}
-              maxFiles={maxFiles}
-              label={needsTwoFiles ? "Upload Pretest & Posttest Files" : effectiveSource === "globalmeet" ? "Upload Webinar Report(s)" : "Upload Data File"}
-              hint={needsTwoFiles ? "Upload both pretest and posttest .xlsx files" : effectiveSource === "globalmeet" ? "Upload 1 or 2 broadcast reports (.xlsx)" : "Supports .xlsx, .xls, .csv"}
-            />
-
-            {/* Auto-detect result */}
-            {selectedSource === "auto" && detectedSource && (
-              <div className="mt-4 p-3 bg-teal-50 border border-teal-200 rounded-lg text-sm">
-                <span className="font-medium text-teal-700">Detected: </span>
-                <span className="text-teal-600">{formatSource(detectedSource)}</span>
-              </div>
-            )}
+            <MultiFileUploader files={files} onFilesChange={setFiles} />
           </div>
 
           <div className="flex gap-3">
             <button
-              onClick={() => setStep("source")}
-              className="px-4 py-2 border rounded-lg text-sm hover:bg-navy-50"
-            >
-              Back
-            </button>
-            <button
               onClick={handleParse}
-              disabled={files.length === 0 || !effectiveSource || (needsTwoFiles && files.length < 2)}
+              disabled={files.length === 0 || detectedCount === 0}
               className="px-4 py-2 bg-teal-500 text-white rounded-lg text-sm hover:bg-teal-600 disabled:opacity-50"
             >
-              Parse Files
+              Parse {files.length} File{files.length !== 1 ? "s" : ""}
             </button>
+            {files.length > 0 && detectedCount < files.length && (
+              <span className="text-sm text-amber-600 flex items-center">
+                {files.length - detectedCount} file{files.length - detectedCount !== 1 ? "s" : ""} could not be detected
+              </span>
+            )}
           </div>
         </div>
       )}
 
-      {/* Step 3: Answer Key (conditional) */}
+      {/* Step 2: Answer Key (conditional) */}
       {step === "answer-key" && (
         <div className="space-y-6">
           <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
@@ -286,15 +263,15 @@ export default function DataImport() {
         </div>
       )}
 
-      {/* Step 4: Parse Preview */}
+      {/* Step 3: Parse Preview */}
       {step === "preview" && parsed && (
         <div className="space-y-6">
           <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
-            <ParsePreview parsed={parsed} />
+            <ParsePreview parsed={parsed} mergeResult={mergeResult ?? undefined} />
           </div>
           <div className="flex gap-3">
             <button
-              onClick={() => setStep("answer-key")}
+              onClick={() => setStep("upload")}
               className="px-4 py-2 border rounded-lg text-sm hover:bg-navy-50"
             >
               Back
@@ -309,7 +286,7 @@ export default function DataImport() {
         </div>
       )}
 
-      {/* Step 5: Activity Metadata */}
+      {/* Step 4: Activity Metadata */}
       {step === "activity" && parsed && (
         <div className="space-y-6">
           <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
@@ -407,7 +384,7 @@ export default function DataImport() {
         </div>
       )}
 
-      {/* Step 6: Results */}
+      {/* Step 5: Results */}
       {step === "results" && result && (
         <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
           <h2 className="text-lg font-semibold mb-4">Import Results</h2>
@@ -485,15 +462,4 @@ export default function DataImport() {
       )}
     </div>
   );
-}
-
-function formatSource(source: string): string {
-  const labels: Record<string, string> = {
-    array: "Array Report",
-    globalmeet: "GlobalMeet",
-    pigeonhole: "Pigeonhole",
-    snowflake_eval: "Live Evaluation Data (Snowflake)",
-    snowflake_ondemand: "On-Demand Data (Snowflake)",
-  };
-  return labels[source] || source;
 }
