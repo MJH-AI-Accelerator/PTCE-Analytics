@@ -7,3 +7,9 @@ out/
 next-env.d.ts
 
 .vercel
+
+# Snowflake RSA keys
+*.p8
+*.pem
+*.key
+keys/

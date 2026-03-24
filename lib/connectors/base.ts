@@ -1,4 +1,5 @@
 import type { ConnectorInfo, ConnectorStatus } from "./types";
+import { snowflakeConnector } from "./snowflake";
 
 export interface BaseConnector {
   getName(): string;
@@ -24,7 +25,7 @@ function makeStub(name: string, description: string): BaseConnector {
 }
 
 export const connectors: BaseConnector[] = [
-  makeStub("Snowflake", "Enterprise data warehouse for learner analytics"),
+  snowflakeConnector,
   makeStub("GlobalMeet", "Webinar and virtual event platform"),
   makeStub("Array", "Survey and assessment data platform"),
   makeStub("Pigeonhole", "Audience engagement and polling platform"),
