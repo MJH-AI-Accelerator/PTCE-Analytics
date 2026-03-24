@@ -10,6 +10,10 @@ snowflake.configure({ ocspFailOpen: true });
 let connectionInstance: snowflake.Connection | null = null;
 
 function getPrivateKey(): string {
+  // Prefer env var (Vercel), fall back to file path (local dev)
+  if (process.env.SNOWFLAKE_PRIVATE_KEY) {
+    return process.env.SNOWFLAKE_PRIVATE_KEY.replace(/\\n/g, '\n');
+  }
   const keyPath = process.env.SNOWFLAKE_PRIVATE_KEY_PATH || './keys/svc_ptce_analytics_ai_accelerator_rsa_key.p8';
   return fs.readFileSync(path.resolve(keyPath), 'utf-8');
 }
@@ -97,7 +101,7 @@ export const snowflakeConnector: BaseConnector = {
       status,
       lastSync: null,
       recordCount: null,
-      errorMessage: hasKey ? null : 'Private key not found. Place .p8 key in keys/ directory.',
+      errorMessage: hasKey ? null : 'Private key not found. Set SNOWFLAKE_PRIVATE_KEY env var or place .p8 key in keys/ directory.',
     };
   },
   testConnection: async () => {
