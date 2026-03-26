@@ -1,4 +1,6 @@
-import { supabase } from "@/lib/supabase";
+"use server";
+
+import { getServiceClient } from "@/lib/supabase";
 
 export interface EvalSummary {
   question_text: string;
@@ -8,6 +10,7 @@ export interface EvalSummary {
 }
 
 export async function evaluationAnalysis(activityId?: string): Promise<EvalSummary[]> {
+  const supabase = getServiceClient();
   let query = supabase.from("evaluation_responses").select("eval_question_text, eval_category, response_text, participation_id");
   if (activityId) {
     const { data: parts } = await supabase.from("participations").select("id").eq("activity_id", activityId);
@@ -39,6 +42,7 @@ export async function evaluationAnalysis(activityId?: string): Promise<EvalSumma
 }
 
 export async function intendedChangesSummary(): Promise<{ change: string; count: number }[]> {
+  const supabase = getServiceClient();
   const { data } = await supabase
     .from("evaluation_responses")
     .select("response_text")
@@ -57,6 +61,7 @@ export async function intendedChangesSummary(): Promise<{ change: string; count:
 }
 
 export async function barriersSummary(): Promise<{ barrier: string; count: number }[]> {
+  const supabase = getServiceClient();
   const { data } = await supabase
     .from("evaluation_responses")
     .select("response_text")

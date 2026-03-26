@@ -1,4 +1,6 @@
-import { supabase } from "@/lib/supabase";
+"use server";
+
+import { getServiceClient } from "@/lib/supabase";
 
 export interface DepthSegment {
   segment: string;
@@ -9,6 +11,7 @@ export interface DepthSegment {
 }
 
 export async function participationDepth(): Promise<DepthSegment[]> {
+  const supabase = getServiceClient();
   const { data: parts } = await supabase.from("participations").select("learner_id, pre_score, post_score, score_change");
   if (!parts) return [];
 
@@ -52,6 +55,7 @@ export interface SettingBreakdown {
 }
 
 export async function practiceSettingBreakdown(): Promise<SettingBreakdown[]> {
+  const supabase = getServiceClient();
   const { data: learners } = await supabase.from("learners").select("id, practice_setting");
   const { data: parts } = await supabase.from("participations").select("learner_id, score_change");
   if (!learners || !parts) return [];

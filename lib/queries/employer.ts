@@ -1,7 +1,10 @@
-import { supabase } from "@/lib/supabase";
+"use server";
+
+import { getServiceClient } from "@/lib/supabase";
 import type { EmployerAlias, NormalizationLog } from "@/lib/database.types";
 
 export async function getEmployerAliases(): Promise<EmployerAlias[]> {
+  const supabase = getServiceClient();
   const { data } = await supabase
     .from("employer_aliases")
     .select("*")
@@ -10,6 +13,7 @@ export async function getEmployerAliases(): Promise<EmployerAlias[]> {
 }
 
 export async function getUnmatchedEmployers(): Promise<string[]> {
+  const supabase = getServiceClient();
   const { data: learners } = await supabase
     .from("learners")
     .select("employer_raw")
@@ -32,6 +36,7 @@ export async function getUnmatchedEmployers(): Promise<string[]> {
 }
 
 export async function getCanonicalEmployers(): Promise<string[]> {
+  const supabase = getServiceClient();
   const { data } = await supabase
     .from("learners")
     .select("employer_normalized")
@@ -42,6 +47,7 @@ export async function getCanonicalEmployers(): Promise<string[]> {
 }
 
 export async function getNormalizationLog(field?: string): Promise<NormalizationLog[]> {
+  const supabase = getServiceClient();
   let query = supabase.from("normalization_log").select("*").order("created_at", { ascending: false });
   if (field) query = query.eq("field_name", field);
   const { data } = await query.limit(200);

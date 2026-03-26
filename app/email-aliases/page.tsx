@@ -1,9 +1,9 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { supabase } from "@/lib/supabase";
 import type { EmailAlias } from "@/lib/database.types";
 import { Check, X, AlertCircle, Mail, RefreshCw } from "lucide-react";
+import { getEmailAliases, approveAlias, rejectAlias } from "./actions";
 
 export default function EmailAliasesPage() {
   const [aliases, setAliases] = useState<EmailAlias[]>([]);
@@ -12,17 +12,8 @@ export default function EmailAliasesPage() {
 
   const loadAliases = async () => {
     setLoading(true);
-    let query = supabase
-      .from("email_aliases")
-      .select("*")
-      .order("created_at", { ascending: false });
-
-    if (filter === "unreviewed") {
-      query = query.eq("reviewed", false);
-    }
-
-    const { data } = await query;
-    setAliases(data ?? []);
+    const data = await getEmailAliases(filter);
+    setAliases(data);
     setLoading(false);
   };
 
@@ -31,22 +22,12 @@ export default function EmailAliasesPage() {
   }, [filter]);
 
   const handleApprove = async (alias: EmailAlias) => {
-    await supabase
-      .from("email_aliases")
-      .update({ reviewed: true })
-      .eq("id", alias.id);
-
-    // Merge: update learner records to point to primary email
-    // The identity resolver will handle this on next import
+    await approveAlias(alias.id);
     loadAliases();
   };
 
   const handleReject = async (alias: EmailAlias) => {
-    await supabase
-      .from("email_aliases")
-      .delete()
-      .eq("id", alias.id);
-
+    await rejectAlias(alias.id);
     loadAliases();
   };
 

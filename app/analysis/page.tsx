@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { questionLevelAnalysis, categoryLevelAnalysis, type QuestionStats } from "@/lib/analytics/questions";
 import { evaluationAnalysis, intendedChangesSummary, barriersSummary, type EvalSummary } from "@/lib/analytics/evaluation";
-import { supabase } from "@/lib/supabase";
+import { getActivityList } from "@/lib/queries/catalog";
 import BarChart from "@/components/charts/BarChart";
 
 type Section = "questions" | "evaluation";
@@ -29,7 +29,7 @@ export default function AnalysisPage() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    supabase.from("activities").select("activity_id, activity_name").then(({ data }) => setActivities(data ?? []));
+    getActivityList().then((data) => setActivities(data));
   }, []);
 
   useEffect(() => {

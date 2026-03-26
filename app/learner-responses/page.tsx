@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useRef } from "react";
 import { getUnifiedResponses, type UnifiedRow } from "@/lib/queries/responses";
-import { supabase } from "@/lib/supabase";
+import { getActivityList } from "@/lib/queries/catalog";
 import ColumnGroupToggle from "@/components/ColumnGroupToggle";
 import { ChevronDown, Building2, CalendarRange, FlaskConical, Layers } from "lucide-react";
 
@@ -52,7 +52,7 @@ export default function LearnerResponses() {
   const [analysisLoading, setAnalysisLoading] = useState(false);
 
   useEffect(() => {
-    supabase.from("activities").select("activity_id, activity_name").then(({ data }) => setActivities(data ?? []));
+    getActivityList().then((data) => setActivities(data));
   }, []);
 
   useEffect(() => {

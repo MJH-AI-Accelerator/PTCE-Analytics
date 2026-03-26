@@ -1,4 +1,6 @@
-import { supabase } from "@/lib/supabase";
+"use server";
+
+import { getServiceClient } from "@/lib/supabase";
 import * as ss from "simple-statistics";
 
 export interface DescriptiveResult {
@@ -13,6 +15,7 @@ export interface DescriptiveResult {
 }
 
 export async function descriptiveStats(): Promise<DescriptiveResult[]> {
+  const supabase = getServiceClient();
   const { data } = await supabase.from("participations").select("pre_score, post_score, score_change");
   if (!data) return [];
 
@@ -49,6 +52,7 @@ export interface TTestResult {
 }
 
 export async function pairedTTest(): Promise<TTestResult | null> {
+  const supabase = getServiceClient();
   const { data } = await supabase.from("participations").select("pre_score, post_score").not("pre_score", "is", null).not("post_score", "is", null);
   if (!data || data.length < 2) return null;
 

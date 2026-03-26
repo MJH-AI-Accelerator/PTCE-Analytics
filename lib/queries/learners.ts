@@ -1,4 +1,6 @@
-import { supabase } from "@/lib/supabase";
+"use server";
+
+import { getServiceClient } from "@/lib/supabase";
 import type { Learner, Participation, Activity } from "@/lib/database.types";
 
 export interface LearnerSummary {
@@ -13,6 +15,7 @@ export interface LearnerSummary {
 }
 
 export async function getLearnersList(search?: string): Promise<LearnerSummary[]> {
+  const supabase = getServiceClient();
   const { data: learners } = await supabase.from("learners").select("*").order("email");
   if (!learners) return [];
 
@@ -58,6 +61,7 @@ export interface LearnerProfile extends Learner {
 }
 
 export async function getLearnerProfile(learnerId: number): Promise<LearnerProfile | null> {
+  const supabase = getServiceClient();
   const { data: learner } = await supabase.from("learners").select("*").eq("id", learnerId).single();
   if (!learner) return null;
 

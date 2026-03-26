@@ -1,15 +1,22 @@
 import { createClient, SupabaseClient } from "@supabase/supabase-js";
 
-// NEXT_PUBLIC_ vars are inlined at build time for client code.
-// For server-side (API routes), also check non-prefixed fallbacks at runtime.
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL || "https://placeholder.supabase.co";
-const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY || "placeholder";
+function requireEnv(name: string, ...fallbacks: string[]): string {
+  for (const key of [name, ...fallbacks]) {
+    const value = process.env[key];
+    if (value) return value;
+  }
+  throw new Error(`Missing required environment variable: ${[name, ...fallbacks].join(" or ")}`);
+}
 
-// Using untyped client — table types are in lib/database.types.ts for reference
+const supabaseUrl = requireEnv("NEXT_PUBLIC_SUPABASE_URL", "SUPABASE_URL");
+
+// Cached service client singleton (server-side only)
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-export const supabase: SupabaseClient<any, "public", any> = createClient(supabaseUrl, supabaseAnonKey);
+let _serviceClient: SupabaseClient<any, "public", any> | null = null;
 
 export function getServiceClient() {
-  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY || "placeholder";
-  return createClient(supabaseUrl, serviceRoleKey);
+  if (_serviceClient) return _serviceClient;
+  const serviceRoleKey = requireEnv("SUPABASE_SERVICE_ROLE_KEY");
+  _serviceClient = createClient(supabaseUrl, serviceRoleKey);
+  return _serviceClient;
 }

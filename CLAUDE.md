@@ -140,7 +140,7 @@ All 15 pages built. Multi-source import pipeline with source-specific parsers (A
 ## Snowflake Connection
 
 - **Connector:** `lib/connectors/snowflake.ts` — RSA key-pair auth, exports `query()` and `ensureConnected()`
-- **Account:** `KZKVXIY-RCB86710` | **User/Role/Warehouse:** `SVC_PTCE_ANALYTICS_AI_ACCELERATOR`
+- **Account:** `<see .env>` | **User/Role/Warehouse:** `<see .env>`
 - **Database:** `EDUCATION_DB.CORE` — 14 tables, **read-only (SELECT only)**
 - **Auth:** RSA key-pair (private key in `keys/` dir, excluded from git)
 - **Key tables:** CONTACT (1.1M), COURSE (17.8K), ENROLLMENT (4.9M), QUIZ_ATTEMPT (11.8M), QUIZ_RESPONSE (101.8M), SURVEY_RESPONSE (4.8M), EVENT (4.4K), EVENT_ATTENDANCE (758K), QUESTION (869K)
@@ -152,7 +152,7 @@ All 15 pages built. Multi-source import pipeline with source-specific parsers (A
 ```
 NEXT_PUBLIC_SUPABASE_URL=...
 NEXT_PUBLIC_SUPABASE_ANON_KEY=...
-SNOWFLAKE_ACCOUNT=KZKVXIY-RCB86710
+SNOWFLAKE_ACCOUNT=<see .env>
 SNOWFLAKE_PRIVATE_KEY_PATH=./keys/svc_ptce_analytics_ai_accelerator_rsa_key.p8
 ```
 

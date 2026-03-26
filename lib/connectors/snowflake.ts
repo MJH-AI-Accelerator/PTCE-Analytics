@@ -9,12 +9,19 @@ snowflake.configure({ ocspFailOpen: true });
 
 let connectionInstance: snowflake.Connection | null = null;
 
+function requireEnv(name: string): string {
+  const value = process.env[name];
+  if (!value) throw new Error(`Missing required environment variable: ${name}`);
+  return value;
+}
+
 function getPrivateKey(): string {
   // Prefer env var (Vercel), fall back to file path (local dev)
   if (process.env.SNOWFLAKE_PRIVATE_KEY) {
     return process.env.SNOWFLAKE_PRIVATE_KEY.replace(/\\n/g, '\n');
   }
-  const keyPath = process.env.SNOWFLAKE_PRIVATE_KEY_PATH || './keys/svc_ptce_analytics_ai_accelerator_rsa_key.p8';
+  const keyPath = process.env.SNOWFLAKE_PRIVATE_KEY_PATH;
+  if (!keyPath) throw new Error('Missing SNOWFLAKE_PRIVATE_KEY or SNOWFLAKE_PRIVATE_KEY_PATH');
   return fs.readFileSync(path.resolve(keyPath), 'utf-8');
 }
 
@@ -24,12 +31,12 @@ function getConnection(): snowflake.Connection {
   const privateKey = getPrivateKey();
 
   connectionInstance = snowflake.createConnection({
-    account: process.env.SNOWFLAKE_ACCOUNT || 'KZKVXIY-RCB86710',
-    username: process.env.SNOWFLAKE_USER || 'SVC_PTCE_ANALYTICS_AI_ACCELERATOR',
-    role: process.env.SNOWFLAKE_ROLE || 'SVC_PTCE_ANALYTICS_AI_ACCELERATOR',
-    warehouse: process.env.SNOWFLAKE_WAREHOUSE || 'SVC_PTCE_ANALYTICS_AI_ACCELERATOR',
-    database: process.env.SNOWFLAKE_DATABASE || 'EDUCATION_DB',
-    schema: process.env.SNOWFLAKE_SCHEMA || 'CORE',
+    account: requireEnv('SNOWFLAKE_ACCOUNT'),
+    username: requireEnv('SNOWFLAKE_USER'),
+    role: requireEnv('SNOWFLAKE_ROLE'),
+    warehouse: requireEnv('SNOWFLAKE_WAREHOUSE'),
+    database: requireEnv('SNOWFLAKE_DATABASE'),
+    schema: requireEnv('SNOWFLAKE_SCHEMA'),
     authenticator: 'SNOWFLAKE_JWT',
     privateKey: privateKey,
   });

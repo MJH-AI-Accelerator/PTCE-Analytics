@@ -1,4 +1,6 @@
-import { supabase } from "@/lib/supabase";
+"use server";
+
+import { getServiceClient } from "@/lib/supabase";
 
 export interface UnifiedRow {
   learner_name: string;
@@ -11,6 +13,7 @@ export interface UnifiedRow {
 }
 
 export async function getUnifiedResponses(activityId?: string): Promise<UnifiedRow[]> {
+  const supabase = getServiceClient();
   let pQuery = supabase.from("participations").select("*");
   if (activityId) pQuery = pQuery.eq("activity_id", activityId);
   const { data: parts } = await pQuery;
@@ -43,6 +46,7 @@ export interface QuestionLegendItem {
 }
 
 export async function getQuestionLegend(activityId: string): Promise<QuestionLegendItem[]> {
+  const supabase = getServiceClient();
   const { data } = await supabase
     .from("questions")
     .select("id, question_text, question_type, question_number")

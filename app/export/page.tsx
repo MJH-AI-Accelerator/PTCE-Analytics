@@ -1,11 +1,11 @@
 "use client";
 
 import { useState } from "react";
-import { supabase } from "@/lib/supabase";
 import { exportToExcel } from "@/lib/export/excel";
 import { exportToPDF } from "@/lib/export/pdf";
+import { getExportSheets, getExportPdfRows } from "./actions";
+import type { ExportType } from "./actions";
 
-type ExportType = "full" | "learners" | "questions" | "employers";
 type ExportFormat = "xlsx" | "pdf";
 
 export default function ExportPage() {
@@ -17,47 +17,21 @@ export default function ExportPage() {
     setExporting(true);
     try {
       if (format === "xlsx") {
-        const [{ data: learners }, { data: parts }, { data: activities }] = await Promise.all([
-          supabase.from("learners").select("*"),
-          supabase.from("participations").select("*"),
-          supabase.from("activities").select("*"),
-        ]);
-
-        const sheets = [];
-        if (type === "full" || type === "learners") {
-          sheets.push({ name: "Learners", data: (learners ?? []) as Record<string, unknown>[] });
-          sheets.push({ name: "Participations", data: (parts ?? []) as Record<string, unknown>[] });
-        }
-        if (type === "full") {
-          sheets.push({ name: "Activities", data: (activities ?? []) as Record<string, unknown>[] });
-        }
-        if (type === "employers") {
-          const { data: aliases } = await supabase.from("employer_aliases").select("*");
-          sheets.push({ name: "Employer Aliases", data: (aliases ?? []) as Record<string, unknown>[] });
-        }
-
+        const sheets = await getExportSheets(type);
         exportToExcel(sheets, `ptce-${type}-export.xlsx`);
       } else {
-        const { data: parts } = await supabase.from("participations").select("id, learner_id, activity_id, pre_score, post_score, score_change").limit(100);
-        const rows = (parts ?? []).map((p: { id: number; learner_id: number; activity_id: string; pre_score: number | null; post_score: number | null; score_change: number | null }) => [
-          String(p.id),
-          String(p.learner_id),
-          p.activity_id,
-          String(p.pre_score ?? "—"),
-          String(p.post_score ?? "—"),
-          String(p.score_change ?? "—"),
-        ]);
+        const rows = await getExportPdfRows();
         const sections = [
           {
             title: "Participation Summary",
             headers: ["ID", "Learner ID", "Activity ID", "Pre Score", "Post Score", "Change"],
-            rows,
+            rows: rows.map((r) => [r.id, r.learner_id, r.activity_id, r.pre_score, r.post_score, r.score_change]),
           },
         ];
         exportToPDF("PTCE Analytics Report", sections, `ptce-${type}-report.pdf`);
       }
     } catch (err) {
-      console.error("Export failed:", err);
+      console.error("Export failed:", err instanceof Error ? err.message : err);
     }
     setExporting(false);
   };

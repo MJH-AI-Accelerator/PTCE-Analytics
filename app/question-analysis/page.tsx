@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { questionLevelAnalysis, categoryLevelAnalysis, type QuestionStats } from "@/lib/analytics/questions";
-import { supabase } from "@/lib/supabase";
+import { getActivityList } from "@/lib/queries/catalog";
 import BarChart from "@/components/charts/BarChart";
 
 type Tab = "questions" | "categories" | "confidence";
@@ -16,7 +16,7 @@ export default function QuestionAnalysis() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    supabase.from("activities").select("activity_id, activity_name").then(({ data }) => setActivities(data ?? []));
+    getActivityList().then((data) => setActivities(data));
   }, []);
 
   useEffect(() => {

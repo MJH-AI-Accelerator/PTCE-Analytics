@@ -1,4 +1,6 @@
-import { supabase } from "@/lib/supabase";
+"use server";
+
+import { getServiceClient } from "@/lib/supabase";
 import type { Activity, Question, LearningObjective } from "@/lib/database.types";
 import Fuse from "fuse.js";
 
@@ -8,6 +10,7 @@ export interface CatalogEntry extends Activity {
 }
 
 export async function getActivityCatalog(search?: string): Promise<CatalogEntry[]> {
+  const supabase = getServiceClient();
   const { data: activities } = await supabase.from("activities").select("*").order("activity_date", { ascending: false });
   if (!activities) return [];
 
@@ -53,6 +56,7 @@ export interface ActivityDetail extends Activity {
 }
 
 export async function getActivityDetail(activityId: string): Promise<ActivityDetail | null> {
+  const supabase = getServiceClient();
   const { data: activity } = await supabase.from("activities").select("*").eq("activity_id", activityId).single();
   if (!activity) return null;
 
@@ -88,6 +92,7 @@ export interface QuestionSearchResult {
 }
 
 export async function searchQuestions(query: string): Promise<QuestionSearchResult[]> {
+  const supabase = getServiceClient();
   const { data: questions } = await supabase.from("questions").select("question_text, question_type, question_category, activity_id");
   if (!questions || !query) return [];
 
@@ -107,6 +112,7 @@ export interface IdenticalQuestionGroup {
 }
 
 export async function findIdenticalQuestions(): Promise<IdenticalQuestionGroup[]> {
+  const supabase = getServiceClient();
   const { data: questions } = await supabase.from("questions").select("question_text, activity_id");
   if (!questions) return [];
 
@@ -126,4 +132,10 @@ export async function findIdenticalQuestions(): Promise<IdenticalQuestionGroup[]
       question_text: text,
       activities: Array.from(ids).map((id) => ({ activity_id: id, activity_name: actMap.get(id) ?? id })),
     }));
+}
+
+export async function getActivityList(): Promise<{ activity_id: string; activity_name: string }[]> {
+  const supabase = getServiceClient();
+  const { data } = await supabase.from("activities").select("activity_id, activity_name");
+  return data ?? [];
 }

@@ -1,4 +1,6 @@
-import { supabase } from "@/lib/supabase";
+"use server";
+
+import { getServiceClient } from "@/lib/supabase";
 
 export interface DashboardMetrics {
   totalLearners: number;
@@ -8,6 +10,7 @@ export interface DashboardMetrics {
 }
 
 export async function getDashboardMetrics(): Promise<DashboardMetrics> {
+  const supabase = getServiceClient();
   const [learners, participations, activities, scores] = await Promise.all([
     supabase.from("learners").select("*", { count: "exact", head: true }),
     supabase.from("participations").select("*", { count: "exact", head: true }),

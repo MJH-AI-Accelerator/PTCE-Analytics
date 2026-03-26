@@ -1,4 +1,6 @@
-import { supabase } from "@/lib/supabase";
+"use server";
+
+import { getServiceClient } from "@/lib/supabase";
 
 export interface FilterOptions {
   employers: string[];
@@ -10,6 +12,7 @@ export interface FilterOptions {
 }
 
 export async function getFilterOptions(): Promise<FilterOptions> {
+  const supabase = getServiceClient();
   const [{ data: learners }, { data: activities }] = await Promise.all([
     supabase.from("learners").select("employer_normalized, practice_setting"),
     supabase.from("activities").select("therapeutic_area, disease_state, activity_type, activity_date"),

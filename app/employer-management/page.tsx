@@ -4,8 +4,7 @@ import { useEffect, useState } from "react";
 import type { EmployerAlias, NormalizationLog } from "@/lib/database.types";
 import { getEmployerAliases, getUnmatchedEmployers, getCanonicalEmployers, getNormalizationLog } from "@/lib/queries/employer";
 import { findBestMatch } from "@/lib/ingestion/employer-matcher";
-import { applyAlias } from "@/lib/ingestion/employer-matcher";
-import { supabase } from "@/lib/supabase";
+import { serverApplyAlias } from "./actions";
 
 type Tab = "aliases" | "unmatched" | "log";
 
@@ -36,7 +35,7 @@ export default function EmployerManagement() {
   }, []);
 
   const handleAcceptMatch = async (rawName: string, canonicalName: string) => {
-    await applyAlias(supabase, rawName, canonicalName, "fuzzy_accepted");
+    await serverApplyAlias(rawName, canonicalName);
     setUnmatched((prev) => prev.filter((n) => n !== rawName));
     const updated = await getEmployerAliases();
     setAliases(updated);

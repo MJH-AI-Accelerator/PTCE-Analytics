@@ -1,4 +1,6 @@
-import { supabase } from "@/lib/supabase";
+"use server";
+
+import { getServiceClient } from "@/lib/supabase";
 
 export interface YearlyStats {
   year: string;
@@ -10,6 +12,7 @@ export interface YearlyStats {
 }
 
 export async function yearlyComparison(): Promise<YearlyStats[]> {
+  const supabase = getServiceClient();
   const { data: parts } = await supabase.from("participations").select("participation_date, pre_score, post_score, score_change, confidence_change");
   if (!parts) return [];
 
@@ -45,6 +48,7 @@ export interface MonthlyPoint {
 }
 
 export async function monthlyTrend(metric = "score_change"): Promise<MonthlyPoint[]> {
+  const supabase = getServiceClient();
   const { data: parts } = await supabase.from("participations").select("participation_date, score_change, confidence_change");
   if (!parts) return [];
 
