@@ -1,6 +1,6 @@
 "use server";
 
-import { getServiceClient } from "@/lib/supabase";
+import { supabaseAdmin } from "@/lib/supabase-server";
 import { ingestData, storeParsedActivityData, type ActivityMetadata, type IngestResult } from "@/lib/ingestion/pipeline";
 import type { ParsedActivityData, ParsedLearner } from "@/lib/parsers/types";
 
@@ -10,7 +10,7 @@ export async function importData(
   mapping: Record<string, string | null>,
   activity: ActivityMetadata
 ): Promise<IngestResult> {
-  const supabase = getServiceClient();
+  const supabase = supabaseAdmin;
   return ingestData(supabase, rows, mapping, activity);
 }
 
@@ -38,7 +38,7 @@ export async function importLearnerBatch(
       mergedSources: init?.parsed.mergedSources,
     };
 
-    const supabase = getServiceClient();
+    const supabase = supabaseAdmin;
     return await storeParsedActivityData(supabase, parsed, activity, {
       skipActivityUpsert: !init,
       skipQuestionUpsert: !init,
@@ -66,7 +66,7 @@ export async function importParsedData(
   activity: ActivityMetadata
 ): Promise<IngestResult> {
   try {
-    const supabase = getServiceClient();
+    const supabase = supabaseAdmin;
     return await storeParsedActivityData(supabase, parsed, activity);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);

@@ -1,6 +1,6 @@
 "use server";
 
-import { getServiceClient } from "@/lib/supabase";
+import { supabaseAdmin } from "@/lib/supabase-server";
 
 export interface QuestionStats {
   question_text: string;
@@ -13,7 +13,7 @@ export interface QuestionStats {
 }
 
 export async function questionLevelAnalysis(activityId?: string): Promise<QuestionStats[]> {
-  const supabase = getServiceClient();
+  const supabase = supabaseAdmin;
   let qQuery = supabase.from("questions").select("id, question_text, question_type, question_category, activity_id");
   if (activityId) qQuery = qQuery.eq("activity_id", activityId);
   const { data: questions } = await qQuery;

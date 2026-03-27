@@ -1,6 +1,6 @@
 "use server";
 
-import { getServiceClient } from "@/lib/supabase";
+import { supabaseAdmin } from "@/lib/supabase-server";
 
 export interface EmployerStats {
   employer: string;
@@ -12,7 +12,7 @@ export interface EmployerStats {
 }
 
 export async function employerPerformance(minLearners = 1): Promise<EmployerStats[]> {
-  const supabase = getServiceClient();
+  const supabase = supabaseAdmin;
   const { data: learners } = await supabase.from("learners").select("id, employer_normalized");
   const { data: parts } = await supabase.from("participations").select("learner_id, pre_score, post_score, score_change, confidence_change");
 

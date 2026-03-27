@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { z } from "zod";
 import { authOptions } from "@/lib/auth";
-import { getServiceClient } from "@/lib/supabase";
+import { supabaseAdmin } from "@/lib/supabase-server";
 import { storeParsedActivityData } from "@/lib/ingestion/pipeline";
 import type { ParsedActivityData } from "@/lib/parsers/types";
 import { validateOrigin } from "@/lib/api/csrf";
@@ -156,7 +156,7 @@ export async function POST(request: NextRequest) {
       mergedSources: init?.mergedSources,
     };
 
-    const supabase = getServiceClient();
+    const supabase = supabaseAdmin;
 
     // Test connectivity with a simple query
     const { error: pingError } = await supabase.from("activities").select("activity_id").limit(1);
