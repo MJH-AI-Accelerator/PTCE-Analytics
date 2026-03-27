@@ -1,10 +1,10 @@
 "use server";
 
-import { getServiceClient } from "@/lib/supabase";
+import { supabaseAdmin } from "@/lib/supabase-server";
 import type { EmailAlias } from "@/lib/database.types";
 
 export async function getEmailAliases(filter: "unreviewed" | "all"): Promise<EmailAlias[]> {
-  const supabase = getServiceClient();
+  const supabase = supabaseAdmin;
   let query = supabase
     .from("email_aliases")
     .select("*")
@@ -19,7 +19,7 @@ export async function getEmailAliases(filter: "unreviewed" | "all"): Promise<Ema
 }
 
 export async function approveAlias(id: number): Promise<void> {
-  const supabase = getServiceClient();
+  const supabase = supabaseAdmin;
   await supabase
     .from("email_aliases")
     .update({ reviewed: true })
@@ -27,7 +27,7 @@ export async function approveAlias(id: number): Promise<void> {
 }
 
 export async function rejectAlias(id: number): Promise<void> {
-  const supabase = getServiceClient();
+  const supabase = supabaseAdmin;
   await supabase
     .from("email_aliases")
     .delete()

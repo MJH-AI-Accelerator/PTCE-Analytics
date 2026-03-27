@@ -1,6 +1,6 @@
 "use server";
 
-import { getServiceClient } from "@/lib/supabase";
+import { supabaseAdmin } from "@/lib/supabase-server";
 
 export type ExportType = "full" | "learners" | "questions" | "employers";
 
@@ -19,7 +19,7 @@ interface PdfRow {
 }
 
 export async function getExportSheets(type: ExportType): Promise<ExportSheet[]> {
-  const supabase = getServiceClient();
+  const supabase = supabaseAdmin;
   const sheets: ExportSheet[] = [];
 
   if (type === "full" || type === "learners") {
@@ -45,7 +45,7 @@ export async function getExportSheets(type: ExportType): Promise<ExportSheet[]> 
 }
 
 export async function getExportPdfRows(): Promise<PdfRow[]> {
-  const supabase = getServiceClient();
+  const supabase = supabaseAdmin;
   const { data: parts } = await supabase
     .from("participations")
     .select("id, learner_id, activity_id, pre_score, post_score, score_change")

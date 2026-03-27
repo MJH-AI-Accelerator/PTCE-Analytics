@@ -1,6 +1,6 @@
 "use server";
 
-import { getServiceClient } from "@/lib/supabase";
+import { supabaseAdmin } from "@/lib/supabase-server";
 
 export interface DashboardChartData {
   scoreChanges: number[];
@@ -10,7 +10,7 @@ export interface DashboardChartData {
 }
 
 export async function getDashboardChartData(): Promise<DashboardChartData> {
-  const supabase = getServiceClient();
+  const supabase = supabaseAdmin;
   const { data: parts } = await supabase.from("participations").select("score_change, confidence_change, participation_date, learner_id");
   const { data: learners } = await supabase.from("learners").select("id, employer_normalized");
 
